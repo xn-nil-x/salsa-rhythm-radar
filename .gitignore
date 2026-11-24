@@ -22,3 +22,7 @@ build/
 # Editor
 .idea/
 .vscode/
+
+# Private source materials (not for publication)
+In/
+*.tsbuildinfo

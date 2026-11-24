@@ -1,0 +1,31 @@
+{
+  "name": "salsa-rhythm-radar",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Research prototype that listens to music and visualizes polyrhythmic structure on a circular 8-count radar.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --noEmit",
+    "bench": "vite-node scripts/bench.ts",
+    "demo-wav": "vite-node scripts/make-wav.ts --"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
+  }
+}

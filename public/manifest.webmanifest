@@ -1,0 +1,15 @@
+{
+  "name": "Salsa Rhythm Radar",
+  "short_name": "Rhythm Radar",
+  "description": "Исследовательский радар ритмической структуры сальсы: темп, фаза, полиритмия, полярная спектрограмма.",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#151a24",
+  "theme_color": "#151a24",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
