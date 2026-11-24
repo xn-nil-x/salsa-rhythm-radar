@@ -4,6 +4,8 @@
 
 Это прототип для танцоров, преподавателей и музыкантов, а не имитация анализа. Эталонные рисунки, измерения и гипотезы всегда показываются раздельно.
 
+**🌐 Открыть онлайн:** [salsa-radar.89.124.65.229.nip.io](https://salsa-radar.89.124.65.229.nip.io) · [руководство](https://salsa-radar.89.124.65.229.nip.io/guide)
+
 ![Salsa Rhythm Radar: циферблат восьмёрки, инструменты темпа и слои](docs/img/00-overview-desktop.png)
 
 <p>
@@ -63,6 +65,7 @@ npm run demo-wav -- out.wav 180 3-2 30   # синтетический WAV для
 
 - [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — руководство пользователя со скриншотами.
 - [docs/user-guide.html](docs/user-guide.html) — то же руководство одним HTML-файлом (картинки внутри). Собирается из `docs/user-guide.src.html` командой `npm run guide`.
+- [docs/DEPLOY.md](docs/DEPLOY.md) — публикация на VDS (`scripts/deploy.sh`, Caddy).
 - [ARCHITECTURE.md](ARCHITECTURE.md) — модули, потоки данных, часы и временные базы, математика накопления.
 - [ROADMAP.md](ROADMAP.md) — этапы MVP 1–4 и статус.
 - [CLAUDE.md](CLAUDE.md) — инженерные принципы и соглашения для разработки.
