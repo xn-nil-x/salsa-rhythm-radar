@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Salsa Rhythm Radar — руководство</title>
+<meta name="description" content="Руководство пользователя Salsa Rhythm Radar: циферблат восьмёрки, темп и синхронизация, слои, полярная спектрограмма, настройки и сценарии.">
+<link rel="icon" href="../public/icon.svg" type="image/svg+xml">
+<style>
+:root {
+  --bg: #f3f4f6;
+  --paper: #ffffff;
+  --text: #1b2230;
+  --muted: #5f6878;
+  --line: #e1e4ea;
+  --soft: #f1f3f6;
+  --accent: #2f6b3a;
+  --link: #1d5fa8;
+  --ref: #d9a04e;
+  --dance: #9aa3ae;
+  --note-bg: #eef4fa;
+  --note-line: #4a83b5;
+  --research-bg: #f4f0fb;
+  --research-line: #8a6cc8;
+  --warn-bg: #fdf3e6;
+  --warn-line: #d9a04e;
+  --shadow: 0 1px 2px rgba(20, 24, 32, .06), 0 6px 20px rgba(20, 24, 32, .07);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1218; --paper: #151a24; --text: #e8ecf2; --muted: #96a0b2; --line: #262d3a; --soft: #1c2230;
+    --accent: #7fd18b; --link: #8bbcf0; --note-bg: #152234; --note-line: #4a83b5;
+    --research-bg: #1e1a2c; --research-line: #8a6cc8; --warn-bg: #2a2216; --warn-line: #c98f3e;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1218; --paper: #151a24; --text: #e8ecf2; --muted: #96a0b2; --line: #262d3a; --soft: #1c2230;
+  --accent: #7fd18b; --link: #8bbcf0; --note-bg: #152234; --note-line: #4a83b5;
+  --research-bg: #1e1a2c; --research-line: #8a6cc8; --warn-bg: #2a2216; --warn-line: #c98f3e;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35); color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.62 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--link); }
+img { max-width: 100%; height: auto; }
+code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .9em; background: var(--soft); padding: 1px 5px; border-radius: 5px; }
+pre { background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+
+/* ---------- header ---------- */
+.top { background: var(--paper); border-bottom: 1px solid var(--line); }
+.top-inner { max-width: 1180px; margin: 0 auto; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+.brand img { width: 32px; height: 32px; border-radius: 8px; }
+.brand small { display: block; font-weight: 400; color: var(--muted); font-size: .8rem; }
+.theme-btn { font: inherit; font-size: .9rem; color: var(--text); background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; min-height: 38px; cursor: pointer; }
+
+.hero { max-width: 1180px; margin: 0 auto; padding: 32px 16px 8px; }
+.hero h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.15; margin: 0 0 10px; }
+.hero p.lead { font-size: 1.12rem; color: var(--muted); max-width: 760px; margin: 0 0 20px; }
+.hero figure { margin: 0; }
+
+/* ---------- layout ---------- */
+.layout { max-width: 1180px; margin: 0 auto; padding: 16px; display: grid; gap: 28px; }
+@media (min-width: 1000px) { .layout { grid-template-columns: 250px minmax(0, 1fr); } }
+.toc { font-size: .92rem; }
+.toc nav { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 12px 8px; }
+.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+.toc li a { display: block; padding: 6px 10px; border-radius: 8px; text-decoration: none; color: var(--text); }
+.toc li a:hover { background: var(--soft); }
+.toc li a.active { background: var(--text); color: var(--paper); }
+.toc summary { cursor: pointer; font-weight: 600; padding: 10px 12px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; list-style: none; }
+.toc summary::-webkit-details-marker { display: none; }
+.toc summary::after { content: " ▾"; color: var(--muted); }
+.toc details[open] summary { border-radius: 12px 12px 0 0; border-bottom: 0; }
+.toc details[open] nav { border-radius: 0 0 14px 14px; }
+@media (min-width: 1000px) {
+  .toc { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow: auto; }
+  .toc summary { display: none; }
+  .toc nav { border-radius: 14px !important; }
+}
+
+article { min-width: 0; }
+section.chapter { background: var(--paper); border: 1px solid var(--line); border-radius: 18px; padding: 22px clamp(16px, 3vw, 32px); margin-bottom: 22px; box-shadow: var(--shadow); }
+section.chapter > h2 { font-size: 1.5rem; margin: 0 0 14px; line-height: 1.25; }
+section.chapter > h2 .num { color: var(--muted); font-weight: 600; margin-right: 6px; }
+h3 { font-size: 1.12rem; margin: 26px 0 8px; }
+p, ul, ol { margin: 0 0 12px; }
+li { margin: 4px 0; }
+
+/* ---------- figures ---------- */
+figure.shot { margin: 16px 0; }
+figure.shot img { display: block; border-radius: 14px; border: 1px solid var(--line); box-shadow: var(--shadow); cursor: zoom-in; background: var(--paper); }
+figure.shot figcaption { color: var(--muted); font-size: .88rem; margin-top: 8px; }
+figure.phone img { max-width: 340px; width: 100%; }
+figure.diagram img { cursor: zoom-in; border-radius: 14px; border: 1px solid var(--line); }
+.split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+.split > * { min-width: 0; }
+@media (min-width: 760px) { .split { grid-template-columns: minmax(0, 1fr) 320px; } .split figure.shot { margin-top: 0; } }
+.gallery { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); margin: 16px 0; }
+.gallery figure.shot { margin: 0; }
+.gallery figure.shot img { width: 100%; }
+
+/* ---------- tables ---------- */
+.table-wrap { overflow-x: auto; margin: 12px 0 16px; border: 1px solid var(--line); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: .94rem; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { background: var(--soft); font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+
+/* ---------- callouts & chips ---------- */
+.callout { border-left: 4px solid var(--note-line); background: var(--note-bg); padding: 12px 16px; border-radius: 8px; margin: 14px 0; }
+.callout.research { border-color: var(--research-line); background: var(--research-bg); }
+.callout.warn { border-color: var(--warn-line); background: var(--warn-bg); }
+.callout > :last-child { margin-bottom: 0; }
+.callout strong.tag { display: block; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 4px; }
+.chip { display: inline-block; font-size: .8rem; padding: 1px 9px; border-radius: 999px; border: 1.5px solid var(--line); white-space: nowrap; }
+.chip.ref { border-color: var(--ref); }
+.chip.obs { border-style: dashed; border-color: var(--text); }
+.chip.dance { border-color: var(--dance); }
+.btn { display: inline-block; font-size: .88em; font-weight: 600; padding: 0 8px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 7px; background: var(--soft); white-space: nowrap; }
+.swatch { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; }
+.cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); margin: 14px 0; }
+.card { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; background: var(--soft); }
+.card h4 { margin: 0 0 6px; font-size: 1rem; }
+.card p:last-child, .card ul:last-child { margin-bottom: 0; }
+.steps { counter-reset: step; list-style: none; padding: 0; }
+.steps > li { counter-increment: step; position: relative; padding-left: 40px; margin: 10px 0; }
+.steps > li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; background: var(--text); color: var(--paper); font-weight: 700; font-size: .9rem; display: grid; place-items: center; }
+
+footer.page { max-width: 1180px; margin: 0 auto; padding: 8px 16px 40px; color: var(--muted); font-size: .9rem; }
+.to-top { position: fixed; right: 16px; bottom: 16px; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--paper); color: var(--text); box-shadow: var(--shadow); font-size: 1.2rem; cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.to-top.show { opacity: 1; pointer-events: auto; }
+
+/* ---------- lightbox ---------- */
+dialog.zoom { border: 0; padding: 0; background: transparent; max-width: 96vw; max-height: 94vh; }
+dialog.zoom::backdrop { background: rgba(8, 10, 14, .82); }
+dialog.zoom img { display: block; max-width: none; border-radius: 12px; background: #fff; cursor: zoom-out; }
+dialog.zoom p { color: #e8ecf2; text-align: center; margin: 8px 0 0; font-size: .9rem; }
+
+@media print {
+  body { background: #fff; }
+  .top, .toc, .to-top, .theme-btn { display: none !important; }
+  .layout { display: block; padding: 0; }
+  section.chapter { box-shadow: none; border: 0; padding: 0; break-inside: auto; }
+  section.chapter > h2 { break-after: avoid; }
+  figure.shot { break-inside: avoid; }
+  figure.shot img { box-shadow: none; }
+  a { color: inherit; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand"><img src="../public/icon.svg" alt=""><div>Salsa Rhythm Radar<small>Руководство пользователя · версия 0.1.0</small></div></div>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="Переключить тему">◐ Тема</button>
+  </div>
+</header>
+
+<div class="hero">
+  <h1>Руководство пользователя</h1>
+  <p class="lead">Salsa Rhythm Radar слушает музыку и показывает её ритмическую структуру на круглом циферблате из восьми счетов: где звучит клаве, где конга и бас, где делается шаг в танце — и что на самом деле слышно в записи.</p>
+  <figure class="shot">
+    <img src="img/00-overview-desktop.png" width="1920" height="1290" alt="Общий вид приложения на компьютере: циферблат, инструменты темпа, список слоёв">
+    <figcaption>Общий вид на компьютере. Слева циферблат восьмёрки, справа инструменты темпа и список слоёв.</figcaption>
+  </figure>
+</div>
+
+<div class="layout">
+  <aside class="toc">
+    <details id="tocDetails">
+      <summary>Содержание</summary>
+      <nav aria-label="Содержание">
+        <ol>
+          <li><a href="#start">1. Быстрый старт</a></li>
+          <li><a href="#screen">2. Экран приложения</a></li>
+          <li><a href="#dial">3. Как читать циферблат</a></li>
+          <li><a href="#sources">4. Источники звука</a></li>
+          <li><a href="#tempo">5. Темп и синхронизация</a></li>
+          <li><a href="#layers">6. Слои и карточки</a></li>
+          <li><a href="#spectrum">7. Полярная спектрограмма</a></li>
+          <li><a href="#settings">8. Настройки</a></li>
+          <li><a href="#diagnostics">9. Диагностика</a></li>
+          <li><a href="#install">10. Телефон, темы, экран</a></li>
+          <li><a href="#scenarios">11. Сценарии</a></li>
+          <li><a href="#limits">12. Возможности и ограничения</a></li>
+          <li><a href="#faq">13. Вопросы и неполадки</a></li>
+        </ol>
+      </nav>
+    </details>
+  </aside>
+
+  <article>
+
+<!-- 1 -->
+<section class="chapter" id="start">
+  <h2><span class="num">1.</span>Быстрый старт</h2>
+  <div class="split">
+    <div>
+      <ol class="steps">
+        <li><b>Откройте приложение.</b> Без установки — адрес dev-сервера (<code>npm run dev</code> → <code>http://localhost:5173</code>) или опубликованная HTTPS-страница.</li>
+        <li><b>Выберите источник.</b> <span class="btn">Demo</span> — синтетическая сальса с известным темпом, начать лучше с него. <span class="btn">Микрофон</span> — музыка вокруг. <span class="btn">Файл</span> — запись с устройства.</li>
+        <li><b>Нажмите</b> <span class="btn">Старт</span> (для файла — <span class="btn">Выбрать аудиофайл</span>).</li>
+        <li><b>Подождите 6–10 секунд.</b> В режимах «Микрофон» и «Файл» приложение ищет темп; пока идёт поиск, вместо BPM написано «поиск темпа…».</li>
+        <li><b>Поставьте «1».</b> Если стрелка проходит «1» не там, где в музыке начинается восьмёрка, нажмите <span class="btn">Здесь «1»</span> точно в момент счёта «раз».</li>
+      </ol>
+      <div class="callout">Звук обрабатывается только на вашем устройстве и никуда не отправляется.</div>
+    </div>
+    <figure class="shot phone">
+      <img src="img/01-idle.png" width="732" height="1376" alt="Начальный экран до запуска" loading="lazy">
+      <figcaption>Начальный экран: источник Demo, кнопка «Старт».</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="chapter" id="screen">
+  <h2><span class="num">2.</span>Экран приложения</h2>
+  <p>На телефоне всё расположено в одну колонку, на компьютере — в две. Главная карточка с циферблатом на компьютере закреплена: настройки можно прокручивать, а циферблат остаётся на виду.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Область</th><th>Что там</th></tr></thead>
+    <tbody>
+      <tr><td><b>Заголовок</b></td><td>Название, текущий источник, крупное значение BPM и пояснение: уверенность, «эталонный темп Demo» или «задан вручную»</td></tr>
+      <tr><td><b>Источник и Старт/Стоп</b></td><td>Переключатель Микрофон / Файл / Demo и главная кнопка</td></tr>
+      <tr><td><b>Слои / Спектр</b></td><td>Два вида циферблата: кольца рисунков или полярная спектрограмма</td></tr>
+      <tr><td><b>Циферблат</b></td><td>Восемь счетов, вращающаяся стрелка, в центре — текущий счёт</td></tr>
+      <tr><td><b>Музыкальная фаза</b></td><td>Положение внутри восьмёрки в градусах (полный круг = 360°) и полоса прогресса</td></tr>
+      <tr><td><b>Инструменты темпа</b></td><td>Tap, «Здесь 1», ±1 BPM, ÷2, ×2, сдвиг ¼, режим синхронизации, длина цикла</td></tr>
+      <tr><td><b>Слои</b></td><td>Список колец с переключателями и метками типа данных</td></tr>
+      <tr><td><b>Настройки / Диагностика</b></td><td>Параметры анализа и отображения, технические показатели</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- 3 -->
+<section class="chapter" id="dial">
+  <h2><span class="num">3.</span>Как читать циферблат</h2>
+  <div class="split">
+    <div>
+      <p><b>Время идёт по кругу.</b> Один полный оборот — одна восьмёрка (два такта 4/4).</p>
+      <ul>
+        <li>Счёт «1» — сверху, время движется <b>по часовой стрелке</b>.</li>
+        <li>Один счёт — 45°, восьмая («и», «&amp;») — 22,5°, шестнадцатая — 11,25°.</li>
+        <li>Жирные радиальные линии — счета, тонкие — восьмые, едва заметные — шестнадцатые.</li>
+      </ul>
+      <p><b>Стрелка</b> показывает текущий момент музыки. Её скорость задаёт темп, а положение — найденная (или заданная вами) фаза.</p>
+      <p><b>Центр</b> показывает счёт в формате <code>счёт.шестнадцатая</code>: <code>6.1</code> — ровно на «шесть», <code>6.3</code> — на «шесть-и» (6&amp;), <code>6.2</code> и <code>6.4</code> — промежуточные шестнадцатые.</p>
+    </div>
+    <figure class="shot phone">
+      <img src="img/02-mobile-layers.png" width="732" height="1348" alt="Циферблат в режиме Слои" loading="lazy">
+      <figcaption>Режим «Слои»: снаружи эталоны инструментов, внутри наблюдаемые атаки и шаги танца.</figcaption>
+    </figure>
+  </div>
+
+  <h3>Три типа колец</h3>
+  <p>Приложение никогда не смешивает то, что известно заранее, с тем, что измерено.</p>
+  <div class="cards">
+    <div class="card">
+      <h4><span class="chip ref">эталон</span></h4>
+      <p>Цветные сегменты на бледной цветной дорожке — документированный ритмический рисунок инструмента. Это <b>не</b> распознанный инструмент, а образец того, как он обычно играет.</p>
+      <ul>
+        <li><b>Яркость</b> — относительная громкость удара.</li>
+        <li><b>Прозрачность</b> — достоверность источника.</li>
+        <li><b>Бледный хвост</b> — длительность звука (бас, пианино, гуиро).</li>
+        <li><b>Обводка</b> — событие звучит прямо сейчас.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4><span class="chip obs">наблюдение</span></h4>
+      <p>Монохромная тепловая полоса на пунктирной дорожке — атаки (начала звуков), найденные в записи в своём частотном диапазоне и накопленные по восьмёркам.</p>
+      <ul>
+        <li>Чем насыщеннее участок, тем чаще и сильнее там атаки.</li>
+        <li><b>Цветные вспышки</b> — атаки, найденные только что.</li>
+        <li><b>Прозрачность кольца</b> — уверенность синхронизации: без найденного темпа положение атак ничего не значит.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4><span class="chip dance">эталон танца</span></h4>
+      <p>Серые блоки внутри — схема шагов выбранного стиля.</p>
+      <ul>
+        <li><b>L / R</b> — левая или правая нога ведущего (если источник однозначен).</li>
+        <li><b>Блок с обводкой</b> — брейк: «1» и «5» в On1, «2» и «6» в On2.</li>
+        <li><b>Кружок</b> — пауза («4» и «8»).</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="gallery">
+    <figure class="shot">
+      <img src="img/12-dark-layers.png" width="732" height="1348" alt="Циферблат в тёмной теме" loading="lazy">
+      <figcaption>Тёмная тема.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="img/08-cycle-4.png" width="732" height="1348" alt="Режим цикла из четырёх счетов" loading="lazy">
+      <figcaption>Цикл из 4 счетов: один оборот — один такт, двухтактные рисунки накладываются сами на себя.</figcaption>
+    </figure>
+  </div>
+  <p>Переключатель <span class="btn">8 счётов</span> / <span class="btn">4 счёта</span> меняет длину оборота. В режиме 4 счётов один оборот — один такт (90° на счёт), и оба такта клаве видны на одном круге. Это удобно, чтобы сравнить «сторону 3» и «сторону 2».</p>
+</section>
+
+<!-- 4 -->
+<section class="chapter" id="sources">
+  <h2><span class="num">4.</span>Источники звука</h2>
+
+  <h3>Demo</h3>
+  <p>Синтетическая сальса, которую приложение генерирует само. Темп и положение каждого удара известны точно, поэтому Demo годится и для обучения, и для проверки анализа.</p>
+  <ul>
+    <li><b>Звучат видимые эталонные слои.</b> Включите в списке только клаве — услышите только клаве; включите конгу и бас — услышите их вместе.</li>
+    <li>Темп — в <b>Настройках → Demo → Темп</b> (80–240 BPM). Звук перестраивается без остановки, музыкальное время продолжается непрерывно.</li>
+    <li>В <b>Настройках → Demo</b> можно добавить живости: случайные <b>временные отклонения</b>, <b>пропущенные удары</b> и <b>шум</b>. Так проверяется, насколько анализ устойчив к живой игре.</li>
+    <li>По умолчанию стрелка в Demo идёт по <b>эталонному</b> (истинному) темпу. Переключите синхронизацию на <span class="btn">Авто</span>, чтобы посмотреть, как справляется автоматический анализ.</li>
+  </ul>
+  <div class="callout">Голоса Demo — упрощённые синтетические звуки с правильными частотными областями и огибающими, а не записи реальных инструментов.</div>
+
+  <h3>Микрофон</h3>
+  <p>Анализ музыки, звучащей рядом: в зале, из колонки, с другого телефона.</p>
+  <ul>
+    <li>Браузер спросит разрешение на микрофон — разрешите.</li>
+    <li>Микрофон работает только на защищённой странице (<b>HTTPS</b>) или на <code>localhost</code>.</li>
+    <li>Приложение отключает браузерное шумоподавление, эхоподавление и автоусиление: они разрушают атаки ударных.</li>
+    <li>Положите телефон так, чтобы он хорошо слышал музыку, но не вплотную к колонке. Уровень виден в <b>Диагностике → RMS</b>: разумно от −35 до −10 дБFS.</li>
+    <li>Звук микрофона не воспроизводится через динамики, поэтому эха нет.</li>
+  </ul>
+
+  <h3>Файл</h3>
+  <div class="split">
+    <div>
+      <p>Анализ записи с устройства: MP3, WAV, M4A, OGG — всё, что умеет проигрывать ваш браузер.</p>
+      <ol>
+        <li>Выберите <span class="btn">Файл</span> → <span class="btn">Выбрать аудиофайл</span>.</li>
+        <li>Воспроизведение начинается сразу; под кнопкой появляется плеер: пауза, перемотка, время, имя файла.</li>
+        <li>При перемотке анализ начинается заново: темп ищется повторно, накопление сбрасывается.</li>
+      </ol>
+      <p>Чтобы сделать свой тестовый файл с известным темпом:</p>
+      <pre><code>npm run demo-wav -- my-test.wav 172 3-2 30</code></pre>
+      <p>(темп 172, клаве 3–2, 30 секунд)</p>
+    </div>
+    <figure class="shot phone">
+      <img src="img/19-file-mode.png" width="732" height="1400" alt="Режим Файл с плеером" loading="lazy">
+      <figcaption>Синтетическая запись на 172 BPM: темп приложению не сообщали, найдено 172.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="chapter" id="tempo">
+  <h2><span class="num">5.</span>Темп и синхронизация</h2>
+  <figure class="shot phone">
+    <img src="img/03-tempo-tools.png" width="732" height="450" alt="Инструменты темпа" loading="lazy">
+    <figcaption>Инструменты темпа и синхронизации.</figcaption>
+  </figure>
+
+  <h3>Значение BPM в заголовке</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Подпись под числом</th><th>Значение</th></tr></thead>
+    <tbody>
+      <tr><td><code>поиск темпа…</code></td><td>Автоматический анализ ещё не нашёл устойчивый темп (обычно 6–10 с)</td></tr>
+      <tr><td><code>BPM · уверенность 47%</code></td><td>Темп найден автоматически. Процент — насколько ярко выражена периодичность (для сальсы типично 40–60%)</td></tr>
+      <tr><td><code>BPM · эталонный темп Demo</code></td><td>Стрелку ведёт истинный темп синтезатора</td></tr>
+      <tr><td><code>BPM · задан вручную</code></td><td>Темп задан вами (Tap, ±1, ×2/÷2)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Режимы синхронизации</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Режим</th><th>Кто ведёт стрелку</th><th>Когда использовать</th></tr></thead>
+    <tbody>
+      <tr><td><span class="btn">Авто</span></td><td>Анализ: находит темп и подстраивает фазу плавно, без скачков</td><td>Микрофон и файл</td></tr>
+      <tr><td><span class="btn">Вручную</span></td><td>Вы: стрелка идёт с заданным BPM и не подстраивается</td><td>Когда автоматика ошибается или нужна фиксированная сетка</td></tr>
+      <tr><td><span class="btn">Эталон</span></td><td>Истинный темп Demo (только в Demo)</td><td>Обучение; проверка точности анализа в Диагностике</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Кнопки</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Кнопка</th><th>Действие</th></tr></thead>
+    <tbody>
+      <tr><td><span class="btn">Tap</span></td><td>Отстучите 3–8 раз ровно по счётам. Темп считается по интервалам, ближайшая доля привязывается к последнему нажатию. Пауза больше 2 секунд начинает отсчёт заново.</td></tr>
+      <tr><td><span class="btn">Здесь «1»</span></td><td>Нажмите в момент счёта «раз»: циферблат повернётся так, чтобы «1» оказалась на ближайшей доле. Накопленные данные поворачиваются вместе с ним и не теряются.</td></tr>
+      <tr><td><span class="btn">−1</span> <span class="btn">+1</span></td><td>Изменить темп на 1 BPM.</td></tr>
+      <tr><td><span class="btn">÷2</span> <span class="btn">×2</span></td><td>Половинный или двойной темп. В режиме Авто это ещё и переключает диапазон поиска темпа.</td></tr>
+      <tr><td><span class="btn">◀ ¼</span> <span class="btn">¼ ▶</span></td><td>Сдвинуть циферблат на шестнадцатую (¼ доли). Два нажатия — половина доли.</td></tr>
+      <tr><td><span class="btn">8 счётов</span> <span class="btn">4 счёта</span></td><td>Длина одного оборота.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout">Ручная правка темпа в режиме <b>Эталон</b> автоматически переключает синхронизацию на <b>Вручную</b>: иначе правка подделала бы истинный темп Demo.</div>
+
+  <h3>Типичные ситуации</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Что видно</th><th>Почему</th><th>Что делать</th></tr></thead>
+    <tbody>
+      <tr><td>Темп вдвое меньше или больше (90 вместо 180)</td><td>90 и 180 BPM описывают одну музыку на разных уровнях; темп ищется в одном диапазоне (по умолчанию 120–240)</td><td><span class="btn">×2</span> или <span class="btn">÷2</span></td></tr>
+      <tr><td>120 вместо 180</td><td>В сальсе рисунок «3+3+2» (тресильо: клаве, тумбао, бас) иногда звучит сильнее самой доли — особенно когда слышно в основном клаве или клаве с басом</td><td>Задайте темп через <span class="btn">Tap</span> или <span class="btn">±1</span>; гипотезы 120 и 180 видны в Диагностике</td></tr>
+      <tr><td>Стрелка проходит доли на «и» (на полдоли позже)</td><td>Бас (2&amp;, 4), фортепиано и конга (4&amp;) дают слабым долям почти такой же вес, как сильным</td><td>Дважды <span class="btn">◀ ¼</span> или <span class="btn">¼ ▶</span></td></tr>
+      <tr><td>«1» не на начале восьмёрки</td><td>Приложение не определяет, где «раз»: это отдельная задача</td><td><span class="btn">Здесь «1»</span> на «раз»; подсказка — сдвиг в карточке клаве</td></tr>
+      <tr><td>Темп долго не находится</td><td>Тихо, нет выраженных ударных или очень свободный темп</td><td>Проверьте RMS в Диагностике; задайте темп через <span class="btn">Tap</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- 6 -->
+<section class="chapter" id="layers">
+  <h2><span class="num">6.</span>Слои и карточки слоёв</h2>
+  <div class="split">
+    <div>
+      <p>Галочка включает или выключает кольцо. Метка справа — тип данных: <span class="chip ref">эталон</span>, <span class="chip obs">наблюдение</span> или <span class="chip dance">эталон танца</span>. Нажатие на метку или на само кольцо циферблата открывает карточку слоя.</p>
+      <p><b>Эталонные слои:</b>
+        <span class="swatch" style="background:#D9A04E"></span>Clave,
+        <span class="swatch" style="background:#D9675F"></span>Conga tumbao,
+        <span class="swatch" style="background:#5DB39E"></span>Bass tumbao,
+        <span class="swatch" style="background:#6E9BE0"></span>Campana,
+        <span class="swatch" style="background:#E08AB8"></span>Bongó martillo,
+        <span class="swatch" style="background:#C9A227"></span>Timbales cáscara,
+        <span class="swatch" style="background:#8DB85A"></span>Güiro,
+        <span class="swatch" style="background:#4FB7C9"></span>Maracas,
+        <span class="swatch" style="background:#A68AD6"></span>Piano montuno.
+        Клаве (son или rumba, 3–2 или 2–3) выбирается в настройках.</p>
+      <p><b>Слои наблюдения:</b></p>
+      <ul>
+        <li><b>Атаки 30–200 Гц</b> — низ: бас, низ конги, бас-барабан;</li>
+        <li><b>Атаки 0,2–2 кГц</b> — середина: конги, бонго, фортепиано, колокол;</li>
+        <li><b>Атаки 2–10 кГц</b> — верх: клаве, маракасы, гуиро, тарелки;</li>
+        <li><b>Пульсация: все атаки</b> — все диапазоны вместе.</li>
+      </ul>
+      <div class="callout warn">Инструменты в скобках — лишь то, что <i>обычно</i> звучит в этом диапазоне. Атака в диапазоне не означает, что сыграл именно этот инструмент.</div>
+      <p><b>Эталон танца:</b> схема, выбранная в настройках — Salsa On1, On2 (Eddie Torres), Casino, Son.</p>
+    </div>
+    <figure class="shot phone">
+      <img src="img/04-layer-list.png" width="732" height="1538" alt="Список слоёв" loading="lazy">
+      <figcaption>Список слоёв с метками типа данных.</figcaption>
+    </figure>
+  </div>
+
+  <h3>Карточки</h3>
+  <div class="gallery">
+    <figure class="shot">
+      <img src="img/05-info-reference.png" width="780" height="944" alt="Карточка эталонного слоя клаве" loading="lazy">
+      <figcaption><span class="chip ref">эталон</span> Удары по счетам, направление клаве, статус, источник, сравнение с наблюдением.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="img/06-info-observed.png" width="780" height="800" alt="Карточка слоя наблюдения" loading="lazy">
+      <figcaption><span class="chip obs">наблюдение</span> Диапазон, число атак, память, состояние синхронизации.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="img/07-info-dance.png" width="780" height="1056" alt="Карточка танцевальной схемы" loading="lazy">
+      <figcaption><span class="chip dance">эталон танца</span> Таблица шагов: счёт, событие, нога, направление.</figcaption>
+    </figure>
+  </div>
+
+  <h3>Сравнение с наблюдением</h3>
+  <p>В карточке эталона показана корреляция рисунка с накопленными атаками (от −1 до 1):</p>
+  <ul>
+    <li><b>r в текущей фазе</b> — насколько эталон совпадает с услышанным при нынешнем положении «1»;</li>
+    <li><b>лучшее r и сдвиг</b> — при каком повороте совпадение максимально.</li>
+  </ul>
+  <p>Если лучшее совпадение заметно выше текущего, а сдвиг близок к целому числу счетов (например, 1,00), «1» скорее всего стоит не там. Поверните циферблат на этот сдвиг кнопкой <span class="btn">Здесь «1»</span> или кнопками <span class="btn">¼</span>.</p>
+  <div class="callout warn">Это статистика совпадения ритма, а не распознавание инструмента: похожий ритм могут дать разные инструменты.</div>
+</section>
+
+<!-- 7 -->
+<section class="chapter" id="spectrum">
+  <h2><span class="num">7.</span>Полярная спектрограмма</h2>
+  <p>Переключите вид на <span class="btn">Спектр</span>.</p>
+
+  <h3>Идея</h3>
+  <p>Обычная сонограмма показывает время по горизонтали и частоту по вертикали. Здесь сонограмма одной восьмёрки сворачивается в круг: <b>угол — фаза внутри восьмёрки, радиус — частота</b>.</p>
+  <figure class="shot diagram">
+    <img src="img/polar-mapping.svg" width="900" height="440" alt="Схема: сонограмма восьмёрки сворачивается в круг — время становится углом, частота радиусом" loading="lazy">
+    <figcaption>Атаки превращаются в радиальные лучи, тянущиеся тона — в окружности.</figcaption>
+  </figure>
+  <ul>
+    <li><b>Атаки</b> (клаве, слэп конги) — короткие широкополосные звуки; они дают <b>радиальные лучи</b> в своей фазе.</li>
+    <li><b>Тянущиеся тона</b> (бас, аккорды) дают <b>дуги и окружности</b> на своей частоте.</li>
+    <li>Каждая новая восьмёрка ложится <b>на ту же картинку</b>, а старые постепенно гаснут (экспоненциальное забывание). Повторяющийся рисунок проступает ярче, случайные звуки размываются.</li>
+  </ul>
+  <p>Вокруг спектрограммы два тонких кольца-ориентира: эталон клаве и наблюдаемые атаки (отключаются в настройках).</p>
+
+  <h3>Три режима накопления</h3>
+  <div class="gallery">
+    <figure class="shot">
+      <img src="img/13-spec-power-log.png" width="672" height="674" alt="Режим Мощность" loading="lazy">
+      <figcaption><b>Мощность</b> — что и где звучит.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="img/14-spec-coherent.png" width="672" height="674" alt="Когерентный режим" loading="lazy">
+      <figcaption><b>Когерентное</b> — только то, что повторяется точно.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="img/15-spec-coherence.png" width="672" height="674" alt="Режим Когерентность" loading="lazy">
+      <figcaption><b>Когерентность</b> — от 0 (каждый раз иначе) до 1 (идентично).</figcaption>
+    </figure>
+  </div>
+  <p class="muted"><small>Снимки сделаны на Demo с временными отклонениями 10 мс — как у живого музыканта.</small></p>
+  <ul>
+    <li><b>Мощность</b> (по умолчанию). Усредняется энергия звука в одной и той же фазе восьмёрки. Показывает, <i>что и где звучит</i>, устойчиво к живой игре. Это основной режим.</li>
+    <li><b>Когерентное.</b> Усредняется сама форма звуковой волны, а не только её энергия. Остаётся лишь то, что повторяется из восьмёрки в восьмёрку <i>в точности так же</i>; всё «гуляющее» гасит само себя. Для живой игры картинка тусклее, чем «Мощность», для секвенсора, лупа или сэмпла — почти такая же.</li>
+    <li><b>Когерентность.</b> Отношение двух предыдущих режимов, от 0 до 1. Жёлтый — звук повторяется идентично, фиолетовый и тёмный — каждый раз по-разному. На снимке устойчивые атаки когерентны, а гармоники баса и пианино, сдвинутые микротаймингом, — нет.</li>
+  </ul>
+  <div class="callout research">
+    <strong class="tag">Для исследователей</strong>
+    <p>«Мощность» — некогерентное фазо-синхронное усреднение |X|². «Когерентное» — комплексное усреднение X с компенсацией дробного сдвига кадра. «Когерентность» — |ΣX|² / Σ|X|². Кадры FFT берутся точно в фазовых позициях цикла (256 позиций на оборот). Все три величины считаются одновременно, переключатель меняет только отображение. Подробнее — в <a href="../ARCHITECTURE.md">ARCHITECTURE.md</a>, раздел «Накопление».</p>
+  </div>
+
+  <h3>Шкала частот и начало оси</h3>
+  <div class="gallery">
+    <figure class="shot">
+      <img src="img/16-spec-linear-r0.png" width="672" height="674" alt="Линейная шкала, начало в центре" loading="lazy">
+      <figcaption>Линейная шкала, начало в центре (r₀ = 0), до 5 кГц.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="img/17-spec-log-r30-2k.png" width="672" height="674" alt="Логарифмическая шкала, r0 30 процентов, до 2 кГц" loading="lazy">
+      <figcaption>Логарифмическая шкала, r₀ = 30%, до 2 кГц.</figcaption>
+    </figure>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Параметр</th><th>Что делает</th></tr></thead>
+    <tbody>
+      <tr><td><b>Линейная шкала</b></td><td>Одинаковые расстояния по радиусу означают одинаковое число герц. Хорошо видны высокочастотные атаки, басовая область сжата у центра.</td></tr>
+      <tr><td><b>Логарифмическая шкала</b></td><td>Одинаковые расстояния означают одинаковые музыкальные интервалы (октавы). Бас, аккорды и мелодия занимают сопоставимое место. Начинается с 40 Гц.</td></tr>
+      <tr><td><b>Начало оси частот (r₀)</b></td><td>Нулевая частота (на лог-шкале — 40 Гц) начинается не в центре круга, а на заданном радиусе: 0, 10, 20 или 30%. Низкие частоты не сжимаются в точку, а внутри остаётся место для счёта.</td></tr>
+      <tr><td><b>Верхняя частота</b></td><td>2, 5 или 10 кГц. Смена пересоздаёт картинку; она заполняется заново за один оборот.</td></tr>
+      <tr><td><b>Динамический диапазон</b></td><td>40, 60 или 80 дБ — сколько тихих деталей показывать относительно самого громкого места.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Подписи частот стоят вдоль луча чуть левее «1».</p>
+
+  <div class="gallery">
+    <figure class="shot">
+      <img src="img/09-spectrum-light.png" width="732" height="1348" alt="Спектрограмма в светлой теме" loading="lazy">
+      <figcaption>В светлой теме спектрограмма рисуется «чернилами» — тёмным по светлому, как печатная сонограмма.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="img/18-info-spectrum.png" width="780" height="666" alt="Карточка точки спектрограммы" loading="lazy">
+      <figcaption>Нажатие в точку спектрограммы: частота, позиция в восьмёрке, режим, число накопленных циклов.</figcaption>
+    </figure>
+  </div>
+
+  <h3>Память и сброс</h3>
+  <ul>
+    <li><b>Накопление наблюдений</b> — сколько восьмёрок помнит радар: «Мгновенно» (только последняя), 4, 8, 16 или 32. Больше память — чище устойчивый рисунок, но медленнее реакция на изменения.</li>
+    <li><b>Сбросить накопление</b> — очистить спектрограмму и кольца наблюдения.</li>
+    <li>Тишина (тише −80 дБFS) не накапливается: пауза в музыке не стирает выученный рисунок.</li>
+    <li>Сразу после старта у «1» может остаться полоса пониженной когерентности: первая восьмёрка началась с тишины и отличается от следующих. Полоса гаснет за несколько восьмёрок.</li>
+  </ul>
+</section>
+
+<!-- 8 -->
+<section class="chapter" id="settings">
+  <h2><span class="num">8.</span>Настройки</h2>
+  <div class="split">
+    <div>
+      <h3>Ритм и танец</h3>
+      <div class="table-wrap"><table>
+        <tbody>
+          <tr><td><b>Клаве</b></td><td>Son или Rumba; 3–2 или 2–3. Рисунки, зависящие от клаве (каскара, колокол, монтуно), поворачиваются вместе с выбором.</td></tr>
+          <tr><td><b>Танцевальная схема</b></td><td>Salsa On1, Salsa On2 (Eddie Torres), Casino, Son (contratiempo).</td></tr>
+          <tr><td><b>Накопление наблюдений</b></td><td>Мгновенно / 4 / 8 / 16 / 32 восьмёрки.</td></tr>
+          <tr><td><b>Подстройка фазы</b></td><td>Плавная коррекция стрелки по найденным долям (режим Авто).</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Полярная спектрограмма</h3>
+      <p>Режим накопления, шкала частот, r₀, верхняя частота, динамический диапазон, кольца-ориентиры, кнопка сброса — см. <a href="#spectrum">раздел 7</a>.</p>
+      <h3>Demo</h3>
+      <div class="table-wrap"><table>
+        <tbody>
+          <tr><td><b>Темп</b></td><td>80–240 BPM</td></tr>
+          <tr><td><b>Временные отклонения</b></td><td>Случайный сдвиг каждого удара, 0–25 мс (стандартное отклонение)</td></tr>
+          <tr><td><b>Пропущенные удары</b></td><td>Доля случайно выпавших ударов, 0–40%</td></tr>
+          <tr><td><b>Шум</b></td><td>Белый шум −40 / −30 / −20 дБ</td></tr>
+          <tr><td><b>Громкость</b></td><td>Громкость Demo</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Интерфейс</h3>
+      <p>Тема (авто / светлая / тёмная) и полноэкранный режим. Настройки сохраняются в браузере и восстанавливаются при следующем запуске.</p>
+    </div>
+    <figure class="shot phone">
+      <img src="img/10-settings.png" width="732" height="3408" alt="Панель настроек целиком" loading="lazy">
+      <figcaption>Панель настроек.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 9 -->
+<section class="chapter" id="diagnostics">
+  <h2><span class="num">9.</span>Диагностика</h2>
+  <div class="split">
+    <div>
+      <p>Раздел для тех, кто хочет понимать, насколько можно доверять тому, что показано.</p>
+      <h3>Аудио</h3>
+      <ul>
+        <li><b>Частота дискретизации, задержки</b> — параметры звуковой системы устройства.</li>
+        <li><b>Нагрузка анализа</b> — доля реального времени, которую занимает анализ (обычно около 1%).</li>
+        <li><b>RMS</b> — общий уровень сигнала.</li>
+        <li><b>Энергия по диапазонам</b> — низ, середина и верх в дБ.</li>
+        <li><b>Атак</b> — сколько атак найдено в каждом диапазоне.</li>
+      </ul>
+      <h3>Темп и фаза</h3>
+      <ul>
+        <li><b>Часы</b> — кто ведёт стрелку (<code>auto</code>, <code>manual</code>, <code>reference</code>), темп и поворот «1».</li>
+        <li><b>Трекер</b> — найден ли темп и какой. Трекер работает всегда, даже когда стрелку ведёт эталон или ручной режим.</li>
+        <li><b>Уверенность темпа</b> — насколько ярко выражена периодичность.</li>
+        <li><b>Контраст долей</b> — насколько доли выделяются среди остальных атак.</li>
+        <li><b>Гипотезы темпа</b> — основной темп (жирным) и конкурирующие варианты (½, ×2, ⅔, 3/2) с оценками. Близкие оценки означают, что музыка действительно неоднозначна.</li>
+        <li><b>Ошибка фазы / BPM против эталона</b> (только Demo в режиме «Эталон») — насколько автоматический анализ расходится с истиной. Хороший результат — единицы миллисекунд.</li>
+      </ul>
+      <h3>Накопление</h3>
+      <p>Число накопленных восьмёрок, размер сетки спектрограммы, версия алгоритма.</p>
+    </div>
+    <figure class="shot phone">
+      <img src="img/11-diagnostics.png" width="732" height="1616" alt="Панель диагностики" loading="lazy">
+      <figcaption>Диагностика в Demo: ошибка фазы против эталона −4 мс.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="chapter" id="install">
+  <h2><span class="num">10.</span>Установка на телефон, темы, полный экран</h2>
+  <ul>
+    <li><b>Установка.</b> Откройте приложение по HTTPS в Chrome (Android) или Safari (iOS) и выберите «Добавить на главный экран» / «Установить приложение». Оно откроется без адресной строки.</li>
+    <li><b>Офлайн.</b> После первой загрузки по сети приложение работает без интернета (кроме режима «Файл», если файл лежит в облаке).</li>
+    <li><b>Тема.</b> В настройках — авто (как в системе), светлая или тёмная.</li>
+    <li><b>Полный экран.</b> Кнопка «Во весь экран» в настройках.</li>
+  </ul>
+</section>
+
+<!-- 11 -->
+<section class="chapter" id="scenarios">
+  <h2><span class="num">11.</span>Сценарии использования</h2>
+  <div class="cards">
+    <div class="card">
+      <h4>💃 Танцору: услышать клаве и свой шаг</h4>
+      <ol>
+        <li>Demo, включите только <b>Clave</b> и <b>Танец</b>, темп 140–160.</li>
+        <li>Сравните удары клаве (3–2: 1, 2&amp;, 4 | 6, 7) с шагами (On1: брейк на 1 и 5, паузы на 4 и 8).</li>
+        <li>Переключите схему на <b>On2</b>: брейк уходит на 2 и 6.</li>
+        <li>Переключите клаве на <b>2–3</b> и посмотрите, как меняется отношение ударов к шагам.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h4>🎧 Танцору: найти «раз» в реальной песне</h4>
+      <ol>
+        <li><b>Микрофон</b> или <b>Файл</b>; подождите, пока темп будет найден.</li>
+        <li>Слушайте и нажмите <span class="btn">Здесь «1»</span> на «раз».</li>
+        <li>Откройте карточку <b>Clave</b>: если лучший сдвиг ≠ 0, «1» можно поправить.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h4>🧑‍🏫 Преподавателю: полиритмия по слоям</h4>
+      <ol>
+        <li>Demo, только <b>Clave</b>; затем добавляйте по одному: Conga, Bass, Campana, Piano.</li>
+        <li>Каждый слой одновременно звучит и подсвечивается в момент удара.</li>
+        <li>Режим <b>4 счёта</b> показывает разницу «стороны 3» и «стороны 2».</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h4>🥁 Музыканту: проверить ровность игры</h4>
+      <ol>
+        <li>Запишите партию на фоне метронома, загрузите в <b>Файл</b>.</li>
+        <li>Вид <b>Спектр</b>, режим <b>Когерентность</b>, память 16–32.</li>
+        <li>Жёлтое — удары, повторяемые очень точно; тёмное — то, что «гуляет».</li>
+        <li>Для сравнения: Demo с отклонениями 5, 10, 20 мс.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h4>🔬 Исследователю: проверить анализ</h4>
+      <ol>
+        <li>Demo, синхронизация <b>Авто</b>, откройте <b>Диагностику</b>.</li>
+        <li>Добавляйте отклонения, пропуски и шум; следите за ошибкой фазы и гипотезами темпа.</li>
+        <li>Воспроизводимые метрики — <code>npm run bench</code>, находки — в <a href="EXPERIMENTS.md">EXPERIMENTS.md</a>.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="chapter" id="limits">
+  <h2><span class="num">12.</span>Что приложение умеет и чего не умеет</h2>
+  <div class="cards">
+    <div class="card">
+      <h4>✅ Умеет</h4>
+      <ul>
+        <li>Находить темп сальсы (синтетика 140–220 BPM: ошибка ≤ 0,2 BPM, фаза ±2–4 мс).</li>
+        <li>Плавно синхронизировать стрелку без скачков.</li>
+        <li>Показывать, <i>где</i> в восьмёрке и <i>в каком диапазоне частот</i> появляются атаки.</li>
+        <li>Накапливать полярную спектрограмму по восьмёркам в трёх режимах.</li>
+        <li>Сравнивать эталонный рисунок с накопленными атаками.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>⏳ Пока не умеет</h4>
+      <ul>
+        <li><b>Распознавать инструменты.</b> Цветные кольца — эталоны, а не обнаруженные конга или клаве.</li>
+        <li><b>Определять «раз»</b> — его ставите вы (подсказка — в карточке клаве).</li>
+        <li><b>Определять направление клаве</b> (3–2 или 2–3) по записи.</li>
+        <li><b>Компенсировать задержку микрофона</b> — стрелка может отставать на 10–40 мс.</li>
+        <li><b>Следить за плавным изменением темпа</b> — при заметной смене темп ищется заново.</li>
+        <li><b>Записывать сессии и экспортировать данные</b>, работать с <b>датчиками движения</b> (Salsa Motion Lab) — в <a href="../ROADMAP.md">плане</a>.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="callout">Приложение пока проверено на синтетических сигналах и в Chrome на компьютере; проверка на реальных записях и телефонах впереди.</div>
+</section>
+
+<!-- 13 -->
+<section class="chapter" id="faq">
+  <h2><span class="num">13.</span>Вопросы и неполадки</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Проблема</th><th>Что сделать</th></tr></thead>
+    <tbody>
+      <tr><td>Ошибка доступа к микрофону</td><td>Разрешите микрофон в настройках сайта в браузере. Страница должна открываться по HTTPS (или с <code>localhost</code>).</td></tr>
+      <tr><td>Темп не находится</td><td>Посмотрите RMS в Диагностике: ниже −45 дБFS — сигнал слишком тихий. Попробуйте ближе к источнику или задайте темп через <span class="btn">Tap</span>.</td></tr>
+      <tr><td>Темп скачет между двумя значениями</td><td>Диагностика → Гипотезы темпа: близкие оценки означают неоднозначную музыку. Переключитесь на <span class="btn">Вручную</span> и задайте темп через <span class="btn">Tap</span>.</td></tr>
+      <tr><td>Кольца наблюдения почти прозрачные</td><td>Темп ещё не найден (режим Авто). Пока синхронизации нет, положение атак в восьмёрке не имеет смысла.</td></tr>
+      <tr><td>Спектрограмма после смены настроек частично пустая</td><td>Смена верхней частоты, длины цикла или темпа пересоздаёт накопление; картинка заполнится за один оборот.</td></tr>
+      <tr><td>Нет звука в Demo</td><td>Проверьте громкость устройства и Настройки → Demo → Громкость. В Demo звучат только <i>включённые эталонные</i> слои.</td></tr>
+      <tr><td>Тормозит на телефоне</td><td>Уменьшите верхнюю частоту спектрограммы до 2 кГц и отключите лишние слои. Если возможно, сообщите модель устройства.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+  </article>
+</div>
+
+<footer class="page">
+  Salsa Rhythm Radar · руководство пользователя к версии 0.1.0 (алгоритм <code>srr-analysis-0.1.0</code>) ·
+  <a href="../README.md">README</a> · <a href="../ARCHITECTURE.md">Архитектура</a> · <a href="../ROADMAP.md">План</a> ·
+  <a href="PATTERNS.md">Эталоны и источники</a> · <a href="EXPERIMENTS.md">Эксперименты</a> · Лицензия Apache 2.0
+</footer>
+
+<button class="to-top" id="toTop" type="button" aria-label="Наверх">↑</button>
+
+<dialog class="zoom" id="zoom" aria-label="Увеличенное изображение">
+  <img id="zoomImg" alt="">
+  <p id="zoomCap"></p>
+</dialog>
+
+<script>
+(function () {
+  // Theme: system by default, explicit choice remembered when storage is available.
+  var root = document.documentElement;
+  var KEY = 'srr.guide.theme';
+  try { var saved = localStorage.getItem(KEY); if (saved) root.dataset.theme = saved; } catch (e) {}
+  document.getElementById('themeBtn').addEventListener('click', function () {
+    var dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+    try { localStorage.setItem(KEY, root.dataset.theme); } catch (e) {}
+  });
+
+  // Table of contents: open by default on wide screens; close after a tap on phones.
+  var det = document.getElementById('tocDetails');
+  var wide = matchMedia('(min-width: 1000px)');
+  var syncToc = function () { det.open = wide.matches; };
+  syncToc();
+  wide.addEventListener('change', syncToc);
+  det.querySelectorAll('a').forEach(function (a) {
+    a.addEventListener('click', function () { if (!wide.matches) det.open = false; });
+  });
+
+  // Highlight the chapter currently in view.
+  var links = {};
+  det.querySelectorAll('a').forEach(function (a) { links[a.getAttribute('href').slice(1)] = a; });
+  var visible = {};
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) { visible[e.target.id] = e.isIntersecting ? e.intersectionRatio : 0; });
+    var best = null, bestR = 0;
+    document.querySelectorAll('section.chapter').forEach(function (s) {
+      if ((visible[s.id] || 0) > bestR) { bestR = visible[s.id]; best = s.id; }
+    });
+    if (!best) return;
+    Object.keys(links).forEach(function (id) { links[id].classList.toggle('active', id === best); });
+  }, { threshold: [0, 0.15, 0.4, 0.7] });
+  document.querySelectorAll('section.chapter').forEach(function (s) { io.observe(s); });
+
+  // Back to top.
+  var top = document.getElementById('toTop');
+  addEventListener('scroll', function () { top.classList.toggle('show', scrollY > 800); }, { passive: true });
+  top.addEventListener('click', function () { scrollTo({ top: 0 }); });
+
+  // Click a screenshot to zoom.
+  var dlg = document.getElementById('zoom');
+  var zImg = document.getElementById('zoomImg');
+  var zCap = document.getElementById('zoomCap');
+  document.querySelectorAll('figure.shot img').forEach(function (img) {
+    img.addEventListener('click', function () {
+      zImg.src = img.currentSrc || img.src;
+      zImg.alt = img.alt;
+      // Fit to the viewport; vector diagrams may be enlarged, screenshots only shrunk.
+      var w = +img.getAttribute('width') || img.naturalWidth;
+      var h = +img.getAttribute('height') || img.naturalHeight;
+      var isSvg = /svg/.test(zImg.src.slice(0, 40));
+      var s = Math.min(innerWidth * 0.96 / w, innerHeight * 0.86 / h);
+      if (!isSvg) s = Math.min(s, 1);
+      zImg.style.width = Math.round(w * s) + 'px';
+      zImg.style.height = Math.round(h * s) + 'px';
+      var cap = img.closest('figure').querySelector('figcaption');
+      zCap.textContent = cap ? cap.textContent : '';
+      if (dlg.showModal) dlg.showModal();
+    });
+  });
+  dlg.addEventListener('click', function () { dlg.close(); });
+})();
+</script>
+</body>
+</html>

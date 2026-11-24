@@ -8,7 +8,10 @@ npm test           # Vitest (Node): DSP, эталоны, сквозные мет
 npm run build      # tsc -b + vite build — должен проходить перед коммитом
 npm run bench      # метрики трекера; результаты переносить в docs/EXPERIMENTS.md
 npm run demo-wav -- out.wav 180 3-2 30
+npm run guide      # пересобрать docs/user-guide.html (картинки встраиваются в base64)
 ```
+
+Руководство пользователя существует в двух формах: `docs/USER_GUIDE.md` и `docs/user-guide.src.html`. При изменении UI обновлять обе. `docs/user-guide.html` не редактировать руками: это результат `npm run guide`.
 
 ## Принципы (из ТЗ §16, обязательны)
 

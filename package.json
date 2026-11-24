@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -b --noEmit",
     "bench": "vite-node scripts/bench.ts",
-    "demo-wav": "vite-node scripts/make-wav.ts --"
+    "demo-wav": "vite-node scripts/make-wav.ts --",
+    "guide": "node scripts/build-guide.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
