@@ -118,7 +118,10 @@ describe('AnalysisEngine on synthetic salsa', () => {
     peaks.forEach((p, i) => expect(Math.abs(p - expected[i])).toBeLessThan(0.15));
   });
 
-  it('polar spectrogram: a looped (identical) signal is coherent, jittered one much less', () => {
+  it.each([
+    ['tape', 16],
+    ['phosphor', 4],
+  ] as const)('polar spectrogram (%s): a looped (identical) signal is coherent, jittered one much less', (specRender, memoryCycles) => {
     const coherenceOf = (jitterMs: number) => {
       const bpm = 180;
       const start = 0.2;
@@ -126,7 +129,7 @@ describe('AnalysisEngine on synthetic salsa', () => {
         sampleRate: SR, bpm, cycles: 10, clave: '3-2', layers: [layer('son-clave-3-2'), layer('conga-tumbao-basic')],
         startOffset: start, jitterMs, seed: 5,
       });
-      const engine = new AnalysisEngine(SR, { memoryCycles: 16, display: 'power', dbRange: 30 });
+      const engine = new AnalysisEngine(SR, { memoryCycles, display: 'power', dbRange: 30, specRender });
       engine.setReference(start, 0, r.bpm);
       for (let i = 0; i + 1024 <= r.samples.length; i += 1024) engine.push(i, r.samples.subarray(i, i + 1024));
       const power = engine.snapshot(true).spec!;

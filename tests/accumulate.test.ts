@@ -107,3 +107,78 @@ describe('ageing and onset folding', () => {
     expect(d[2]).toBeCloseTo(0.25, 9);
   });
 });
+
+import { PhosphorScreen } from '../src/accumulate/phosphor';
+
+describe('PhosphorScreen (CRT-like persistence)', () => {
+  const A = 16;
+  const cycleDur = 2;
+  const frameStep = cycleDur / A; // one frame per cell per sweep
+  const wp = (phase: number, N: number) => ({ phase, cycleDur, frameStep, memoryCycles: N, dbRange: 60, fftSize: 16, sampleRate: 1000 });
+  // "Bass": loud at bin 1; "claves": quieter at bin 6, bin 1 near silent.
+  const bass = { re: Float32Array.from({ length: K }, (_, k) => (k === 1 ? 1 : 1e-4)), im: new Float32Array(K) };
+  const clave = { re: Float32Array.from({ length: K }, (_, k) => (k === 6 ? 0.3 : 1e-4)), im: new Float32Array(K) };
+  const sweep = (ps: PhosphorScreen, f: { re: Float32Array; im: Float32Array }, N: number) => {
+    for (let a = 0; a < A; a++) ps.write(f.re, f.im, wp(a / A, N));
+  };
+
+  it('moves each cell by 1/N of the difference per sweep and forgets a stopped instrument', () => {
+    const N = 16;
+    const ps = new PhosphorScreen(A, K);
+    for (let c = 0; c < 60; c++) sweep(ps, bass, N);
+    const lit = ps.L[3 * K + 1];
+    expect(lit).toBeGreaterThan(0.95);
+    sweep(ps, clave, N);
+    // One sweep: v <- v + (x - v)/N.
+    const x = ps.L[3 * K + 1];
+    expect(Math.abs(lit - x - (lit - 0) / N)).toBeLessThan(0.02);
+    for (let c = 1; c < 50; c++) sweep(ps, clave, N);
+    // After 50 sweeps of claves only: (15/16)^50 ≈ 4 % of the bass brightness.
+    expect(ps.L[3 * K + 1]).toBeLessThan(0.06 * lit);
+    expect(ps.L[3 * K + 6]).toBeGreaterThan(0.9);
+  });
+
+  it('the dB tape keeps the same stopped bass visible (why the phosphor exists)', () => {
+    const h = new FrameHistory(4096, K);
+    for (let c = 0; c < 80; c++) for (let a = 0; a < A; a++) h.push(c * cycleDur + (a + 0.5) * frameStep, c < 30 ? bass.re : clave.re, bass.im);
+    const fs = new FoldedSpectrogram(A, K);
+    fs.rebuild(h, params({ now: 80 * cycleDur, memoryCycles: 16, cycleDur, phaseOf: (t) => (t / cycleDur) % 1 }));
+    const out = new Uint8Array(A * K);
+    fs.render('power', 60, out);
+    expect(out[3 * K + 1]).toBeGreaterThan(128); // still bright after 50 cycles
+  });
+
+  it('identical frames are fully coherent; random phases are not', () => {
+    const ps = new PhosphorScreen(A, K);
+    for (let c = 0; c < 40; c++) sweep(ps, { re: clave.re, im: Float32Array.from({ length: K }, (_, k) => (k === 6 ? 0.2 : 0)) }, 8);
+    const out = new Uint8Array(A * K);
+    ps.render('coherence', 0, out);
+    expect(out[5 * K + 6]).toBe(255);
+    const rnd = mulberry32(5);
+    const ps2 = new PhosphorScreen(A, K);
+    const re = new Float32Array(K);
+    const im = new Float32Array(K);
+    for (let c = 0; c < 200; c++)
+      for (let a = 0; a < A; a++) {
+        for (let k = 0; k < K; k++) {
+          const ph = rnd() * 2 * Math.PI;
+          re[k] = Math.cos(ph);
+          im[k] = Math.sin(ph);
+        }
+        ps2.write(re, im, wp(a / A, 8));
+      }
+    ps2.render('coherence', 0, out);
+    expect(out[5 * K + 6]).toBeLessThan(1 + 254 * 0.4);
+  });
+
+  it('silence fades the screen; rotation moves the image, not the data', () => {
+    const ps = new PhosphorScreen(A, K);
+    ps.write(bass.re, bass.im, wp(2 / A, 1));
+    const out = new Uint8Array(A * K);
+    ps.render('power', 0.25, out); // rotate a quarter cycle = 4 cells
+    expect(out[6 * K + 1]).toBe(255);
+    expect(out[2 * K + 1]).toBe(0);
+    for (let c = 0; c < 64; c++) ps.write(null, null, wp(2 / A, 8));
+    expect(ps.L[2 * K + 1]).toBeLessThan(0.05);
+  });
+});

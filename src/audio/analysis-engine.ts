@@ -22,13 +22,14 @@ import { FeatureExtractor, N_BANDS } from '../dsp/features';
 import { OnsetDetector } from '../dsp/onset';
 import { beatGrid, fold, refinePeriodByOnsets, searchCycle, type CycleSearch, type FoldOptions } from '../dsp/folding';
 import { FoldedSpectrogram, FrameHistory, foldOnsets, type AccumDisplay, type OnsetRecord } from '../accumulate/folded';
+import { PhosphorScreen } from '../accumulate/phosphor';
 import { patternPhases, getPattern } from '../rhythm/library';
 import { patternProfile } from '../rhythm/matching';
 import type { ClaveDirection } from '../rhythm/types';
 import { Transport } from './transport';
 import { clamp, frac, wrapHalf } from '../util/math';
 
-export const ALGORITHM_VERSION = 'srr-analysis-0.3.1';
+export const ALGORITHM_VERSION = 'srr-analysis-0.4.0';
 
 export type ClockMode = 'auto' | 'manual' | 'reference';
 
@@ -55,6 +56,12 @@ export interface EngineSettings {
    * keeps the beat it was given when recorded (real tempo changes do not smear it).
    */
   tapeMode: 'refold' | 'recorded';
+  /**
+   * How the polar spectrogram accumulates: 'phosphor' = CRT-like screen, each cell
+   * moves 1/N of the way to every new observation (fades away in ~3N cycles);
+   * 'tape' = the history refolded with exponential weights.
+   */
+  specRender: 'phosphor' | 'tape';
 }
 
 export const DEFAULT_SETTINGS: EngineSettings = {
@@ -68,6 +75,7 @@ export const DEFAULT_SETTINGS: EngineSettings = {
   autoDownbeat: true,
   clave: '3-2',
   tapeMode: 'refold',
+  specRender: 'phosphor',
 };
 
 /** Number of event-density channels: one per band + combined. */
@@ -234,6 +242,7 @@ export class AnalysisEngine {
   private onsetHist: OnsetRecord[] = [];
   private readonly frames: FrameHistory;
   private spec: FoldedSpectrogram;
+  private phosphor: PhosphorScreen;
   private readonly specFFT: FFT;
   private readonly specWin: Float32Array;
   private readonly specNorm: number;
@@ -270,6 +279,7 @@ export class AnalysisEngine {
     const histBins = Math.min(this.specN / 2, Math.ceil(10000 / (sampleRate / this.specN)) + 1);
     this.frames = new FrameHistory(Math.ceil((MAX_HISTORY * sampleRate) / this.specHop), histBins);
     this.spec = new FoldedSpectrogram(this.angleBins, this.specBinsFor(this.settings.fmax));
+    this.phosphor = new PhosphorScreen(this.angleBins, this.spec.freqBins);
     this.tracker.bpm = 1.5 * this.settings.bpmLo;
     this.templates = { '3-2': buildTemplate('3-2', FOLD_BINS), '2-3': buildTemplate('2-3', FOLD_BINS) };
   }
@@ -411,6 +421,7 @@ export class AnalysisEngine {
     this.settings = { ...prev, ...s };
     if (s.fmax !== undefined && this.specBinsFor(s.fmax) !== this.spec.freqBins) {
       this.spec = new FoldedSpectrogram(this.angleBins, this.specBinsFor(s.fmax));
+      this.phosphor = new PhosphorScreen(this.angleBins, this.spec.freqBins);
       this.lastRebuild = -Infinity;
     }
     if (s.bpmLo !== undefined && s.bpmLo !== prev.bpmLo && this.mode === 'auto') {
@@ -418,6 +429,7 @@ export class AnalysisEngine {
       this.candPeriod = 0;
     }
     if (s.autoDownbeat === true && !prev.autoDownbeat) this.userDownbeat = false;
+    if (this.settings.cycleBeats !== prev.cycleBeats) this.phosphor.clear();
     this.lastRebuild = -Infinity;
   }
 
@@ -481,6 +493,7 @@ export class AnalysisEngine {
     this.onsetHist = [];
     this.frames.clear();
     this.spec.clear();
+    this.phosphor.clear();
     this.lastRebuild = -Infinity;
   }
 
@@ -544,13 +557,31 @@ export class AnalysisEngine {
       re[i] = x * this.specWin[i] * this.specNorm;
       im[i] = 0;
     }
-    // No signal is no observation: silent frames neither dilute power nor fake incoherence.
-    if (ms / N < SILENCE_MS) return;
-    this.specFFT.forward(re, im);
     const tc = (s0 + N / 2) / this.sr;
-    const slot = this.frames.push(tc, re, im, this.clock.beatsAt(tc) - this.beatsBias);
+    const recorded = this.clock.beatsAt(tc) - this.beatsBias;
+    const silent = ms / N < SILENCE_MS;
+    // The phosphor keeps fading in silence (the sweep goes on); the tape does not record it.
+    if (silent) {
+      this.phosphor.write(null, null, this.phosphorParams(recorded));
+      return;
+    }
+    this.specFFT.forward(re, im);
+    this.phosphor.write(re, im, this.phosphorParams(recorded));
+    const slot = this.frames.push(tc, re, im, recorded);
     // Incremental fold under the current clock; full refolds happen at display time.
-    this.spec.addSlot(this.frames, slot, this.foldParams());
+    if (this.settings.specRender === 'tape') this.spec.addSlot(this.frames, slot, this.foldParams());
+  }
+
+  private phosphorParams(recordedBeats: number) {
+    return {
+      phase: frac(recordedBeats / this.settings.cycleBeats),
+      cycleDur: this.cycleDur(),
+      frameStep: this.specHop / this.sr,
+      memoryCycles: this.settings.memoryCycles,
+      dbRange: this.settings.dbRange,
+      fftSize: this.specN,
+      sampleRate: this.sr,
+    };
   }
 
   private foldParams() {
@@ -856,13 +887,18 @@ export class AnalysisEngine {
     const density = foldOnsets(this.onsetHist, N_CHANNELS, this.densityBins, p);
     let spec: Uint8Array | null = null;
     if (withSpec) {
-      // Refold the whole tape a few times per second: follows the clock smoothly.
-      if (this.now - this.lastRebuild > 0.2) {
-        this.spec.rebuild(this.frames, p);
-        this.lastRebuild = this.now;
-      }
       spec = new Uint8Array(this.angleBins * this.spec.freqBins);
-      this.spec.render(this.settings.display, this.settings.dbRange, spec);
+      if (this.settings.specRender === 'phosphor') {
+        // Recorded coordinates -> current clock (count 1 and clock switches rotate the screen).
+        this.phosphor.render(this.settings.display, frac((this.beatsBias + c.offset) / this.settings.cycleBeats), spec);
+      } else {
+        // Refold the whole tape a few times per second: follows the clock smoothly.
+        if (this.now - this.lastRebuild > 0.2) {
+          this.spec.rebuild(this.frames, p);
+          this.lastRebuild = this.now;
+        }
+        this.spec.render(this.settings.display, this.settings.dbRange, spec);
+      }
     }
     const onsets = this.pendingOnsets;
     this.pendingOnsets = [];

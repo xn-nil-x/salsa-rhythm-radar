@@ -24,6 +24,8 @@ export interface Settings {
   /** Tape folding: 'refold' (current clock, default) or 'recorded' (phase at recording time). */
   tapeMode: 'refold' | 'recorded';
   spec: {
+    /** 'phosphor' = CRT-like screen (v += (x - v)/N per sweep), 'tape' = refolded history. */
+    render: 'phosphor' | 'tape';
     display: AccumDisplay;
     scale: FreqScale;
     /** Radius where frequency 0 (or fLow on log scale) starts, fraction of the dial radius. */
@@ -54,7 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoPhase: true,
   autoDownbeat: true,
   tapeMode: 'refold',
-  spec: { display: 'power', scale: 'log', r0: 0.2, fmax: 5000, dbRange: 60, showRings: true },
+  spec: { render: 'phosphor', display: 'power', scale: 'log', r0: 0.2, fmax: 5000, dbRange: 60, showRings: true },
   demo: { bpm: 180, jitterMs: 0, dropProb: 0, noiseDb: -120, volume: 0.8 },
   theme: 'auto',
   showFootwork: true,

@@ -28,6 +28,7 @@ export function engineSettings(s: Settings) {
     fmax: s.spec.fmax,
     autoDownbeat: s.autoDownbeat,
     tapeMode: s.tapeMode,
+    specRender: s.spec.render,
     clave: s.clave.dir,
   };
 }
