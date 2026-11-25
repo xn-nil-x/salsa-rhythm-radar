@@ -151,3 +151,51 @@ describe('AnalysisEngine on synthetic salsa', () => {
     expect(jittered.mean).toBeLessThan(clean.mean - 0.2);
   });
 });
+
+describe('adaptive depth and tape modes', () => {
+  it('re-locks to a new tempo (180 -> 170) within 6 s', () => {
+    const a = renderRhythm({ sampleRate: SR, bpm: 180, cycles: 5, clave: '3-2', layers: FULL, jitterMs: 4, seed: 9 });
+    const b = renderRhythm({ sampleRate: SR, bpm: 170, cycles: 6, clave: '3-2', layers: FULL, jitterMs: 4, seed: 10 });
+    const cut = a.cycleSamples * 5;
+    const sig = new Float32Array(cut + b.samples.length);
+    sig.set(a.samples.subarray(0, cut), 0);
+    sig.set(b.samples, cut);
+    const engine = new AnalysisEngine(SR, {});
+    let relock: number | null = null;
+    for (let i = 0; i + 1024 <= sig.length; i += 1024) {
+      engine.push(i, sig.subarray(i, i + 1024));
+      const t = (i + 1024) / SR - cut / SR;
+      if (t < 0) continue;
+      const ok = Math.abs(engine.tracker.bpm / b.bpm - 1) < 0.01;
+      if (ok && relock === null) relock = t;
+      if (!ok) relock = null;
+    }
+    expect(relock, 'never re-locked').not.toBeNull();
+    expect(relock!).toBeLessThan(6);
+  });
+
+  const clavePeaks = (mode: 'refold' | 'recorded') => {
+    const start = 0.37;
+    const r = renderRhythm({ sampleRate: SR, bpm: 180, cycles: 8, clave: '3-2', layers: [layer('son-clave-3-2')], startOffset: start });
+    const engine = new AnalysisEngine(SR, { memoryCycles: 16, tapeMode: mode });
+    engine.setReference(start, 0, r.bpm);
+    for (let i = 0; i + 512 <= r.samples.length; i += 512) engine.push(i, r.samples.subarray(i, i + 512));
+    // The clock now claims a different tempo (as after a tempo change), the recorded audio did not change.
+    const tNow = r.samples.length / SR;
+    engine.setReference(tNow, ((tNow - start) * r.bpm) / 60, 165);
+    const snap = engine.snapshot(false);
+    const bins = snap.densityBins;
+    const d = snap.density.subarray(CHANNEL_ALL * bins, (CHANNEL_ALL + 1) * bins);
+    const max = Math.max(...d);
+    let mass = 0;
+    for (const v of d) mass += v;
+    return max / (mass / bins); // peakiness: high = sharp clave pattern, low = smeared
+  };
+
+  it("'recorded' tape keeps the accumulated pattern sharp when the clock tempo changes; 'refold' re-maps (smears) it", () => {
+    const refold = clavePeaks('refold');
+    const recorded = clavePeaks('recorded');
+    expect(recorded).toBeGreaterThan(refold * 1.5);
+    expect(recorded).toBeGreaterThan(8);
+  });
+});

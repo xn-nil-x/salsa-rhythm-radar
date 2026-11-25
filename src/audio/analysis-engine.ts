@@ -28,7 +28,7 @@ import type { ClaveDirection } from '../rhythm/types';
 import { Transport } from './transport';
 import { clamp, frac, wrapHalf } from '../util/math';
 
-export const ALGORITHM_VERSION = 'srr-analysis-0.2.0';
+export const ALGORITHM_VERSION = 'srr-analysis-0.3.0';
 
 export type ClockMode = 'auto' | 'manual' | 'reference';
 
@@ -49,6 +49,12 @@ export interface EngineSettings {
   autoDownbeat: boolean;
   /** Clave direction assumed by the phase template. */
   clave: ClaveDirection;
+  /**
+   * How the tape is folded: 'refold' = the whole history with the CURRENT clock
+   * (default: tempo refinements re-align all of it); 'recorded' = each observation
+   * keeps the beat it was given when recorded (real tempo changes do not smear it).
+   */
+  tapeMode: 'refold' | 'recorded';
 }
 
 export const DEFAULT_SETTINGS: EngineSettings = {
@@ -61,6 +67,7 @@ export const DEFAULT_SETTINGS: EngineSettings = {
   autoPhase: true,
   autoDownbeat: true,
   clave: '3-2',
+  tapeMode: 'refold',
 };
 
 /** Number of event-density channels: one per band + combined. */
@@ -103,6 +110,8 @@ export interface TrackerState {
   phaseMethod: 'template' | 'comb';
   /** Pearson r of the folded cycle profile with the salsa template (-1..1). */
   templateR: number;
+  /** Adaptive depth of the tempo fold, in cycles. */
+  depthCycles: number;
   downbeat: 'auto' | 'user' | 'off';
   /** Tracker vs reference clock (Demo only). */
   refPhaseErrorMs: number | null;
@@ -139,11 +148,17 @@ const SILENCE_MS = 1e-8;
 const ENV_SECONDS = 30;
 /** Maximum history of the "tape" (spectra and onsets), seconds. */
 const MAX_HISTORY = 90;
-/** Tempo folding: phase bins per cycle and envelope memory. */
-const FOLD: FoldOptions = { bins: 64, tau: 8 };
+/** Tempo folding: phase bins per cycle. */
+const FOLD_BINS = 64;
+/** Adaptive memory depth of the tempo fold, in cycles (see docs/research/TEMPO.md §7). */
+const DEPTH_MIN = 1.5;
+const DEPTH_MAX = 6;
+const DEPTH_STEP = 0.25;
+/** Short window used to rank hypotheses (reacts fast to tempo changes), cycles. */
+const RANK_DEPTH = 1.5;
 /** Consecutive updates (0.5 s each) needed to accept a half-beat phase jump / tempo switch / new count 1. */
 const FLIP_VOTES = 4;
-const SWITCH_VOTES = 3;
+const SWITCH_VOTES = 2;
 const DOWNBEAT_VOTES = 3;
 /** Required evidence ratio for a half-beat jump. */
 const FLIP_MARGIN = 1.3;
@@ -202,6 +217,8 @@ export class AnalysisEngine {
   private lowConf = 0;
   private userDownbeat = false;
   private lastSearch: CycleSearch | null = null;
+  /** Current depth of the precise tempo/phase fold, in cycles. */
+  private depthCycles = 2;
   private phaseStrength = 0;
   private templateR = 0;
   private phaseMethod: 'template' | 'comb' = 'comb';
@@ -250,7 +267,7 @@ export class AnalysisEngine {
     this.frames = new FrameHistory(Math.ceil((MAX_HISTORY * sampleRate) / this.specHop), histBins);
     this.spec = new FoldedSpectrogram(this.angleBins, this.specBinsFor(this.settings.fmax));
     this.tracker.bpm = 1.5 * this.settings.bpmLo;
-    this.templates = { '3-2': buildTemplate('3-2', FOLD.bins), '2-3': buildTemplate('2-3', FOLD.bins) };
+    this.templates = { '3-2': buildTemplate('3-2', FOLD_BINS), '2-3': buildTemplate('2-3', FOLD_BINS) };
   }
 
   // ---------------------------------------------------------------- clock
@@ -276,10 +293,32 @@ export class AnalysisEngine {
     return (this.settings.cycleBeats * 60) / this.clock.bpm;
   }
 
-  private phaseOf = (t: number): number => frac(this.clock.cycleBeatsAt(t) / this.settings.cycleBeats);
+  /**
+   * Correction between beat numbers recorded under an earlier clock and the
+   * current clock's numbering (changes when the clock is switched or re-anchored).
+   */
+  private beatsBias = 0;
+
+  private phaseOf = (t: number, recorded: number): number => {
+    const c = this.clock;
+    if (this.settings.tapeMode === 'recorded') return frac((recorded + this.beatsBias + c.offset) / this.settings.cycleBeats);
+    return frac(c.cycleBeatsAt(t) / this.settings.cycleBeats);
+  };
+
+  /** Run a clock change and keep recorded beat numbers consistent with the new numbering. */
+  private renumber(change: () => void): void {
+    const t = this.now;
+    const before = this.clock.beatsAt(t);
+    change();
+    this.beatsBias += this.clock.beatsAt(t) - before;
+  }
 
   setClockMode(mode: ClockMode): void {
     if (mode === this.mode) return;
+    this.renumber(() => this.applyClockMode(mode));
+  }
+
+  private applyClockMode(mode: ClockMode): void {
     const t = this.now;
     if (mode !== 'auto' && this.mode === 'auto') {
       this.fixedClock.anchor(t, this.tracker.beatsAt(t), this.tracker.bpm);
@@ -293,9 +332,11 @@ export class AnalysisEngine {
 
   /** Ground truth clock (Demo): count 1 at beat 0. */
   setReference(tRef: number, beatRef: number, bpm: number): void {
-    this.fixedClock.anchor(tRef, beatRef, bpm);
-    this.fixedClock.offset = 0;
-    this.mode = 'reference';
+    this.renumber(() => {
+      this.fixedClock.anchor(tRef, beatRef, bpm);
+      this.fixedClock.offset = 0;
+      this.mode = 'reference';
+    });
   }
 
   setBpm(bpm: number): void {
@@ -352,7 +393,7 @@ export class AnalysisEngine {
     const last = times[times.length - 1];
     const c = this.clock;
     const b = c.beatsAt(last);
-    c.anchor(last, Math.round(b), bpm);
+    this.renumber(() => c.anchor(last, Math.round(b), bpm));
     if (this.mode === 'auto') {
       this.settings.bpmLo = octaveLo(bpm, this.settings.bpmLo);
       this.locked = true;
@@ -461,8 +502,8 @@ export class AnalysisEngine {
       const o = this.onsetDetectors[ch].push(ch === CHANNEL_ALL ? all : f.flux[ch], t, dt);
       if (o) {
         this.onsetCounts[ch]++;
-        this.onsetHist.push({ time: o.time, channel: ch, strength: o.strength });
-        if (this.pendingOnsets.length < 256) this.pendingOnsets.push({ time: o.time, channel: ch, strength: o.strength, phase: this.phaseOf(o.time) });
+        this.onsetHist.push({ time: o.time, beats: this.clock.beatsAt(o.time) - this.beatsBias, channel: ch, strength: o.strength });
+        if (this.pendingOnsets.length < 256) this.pendingOnsets.push({ time: o.time, channel: ch, strength: o.strength, phase: frac(this.clock.cycleBeatsAt(o.time) / this.settings.cycleBeats) });
       }
     }
     if (this.onsetHist.length > 4000 || (this.onsetHist.length && t - this.onsetHist[0].time > MAX_HISTORY)) {
@@ -502,7 +543,8 @@ export class AnalysisEngine {
     // No signal is no observation: silent frames neither dilute power nor fake incoherence.
     if (ms / N < SILENCE_MS) return;
     this.specFFT.forward(re, im);
-    const slot = this.frames.push((s0 + N / 2) / this.sr, re, im);
+    const tc = (s0 + N / 2) / this.sr;
+    const slot = this.frames.push(tc, re, im, this.clock.beatsAt(tc) - this.beatsBias);
     // Incremental fold under the current clock; full refolds happen at display time.
     this.spec.addSlot(this.frames, slot, this.foldParams());
   }
@@ -527,7 +569,20 @@ export class AnalysisEngine {
 
   // ---------------------------------------------------------------- tempo & phase
 
-  /** Global coarse scan of the octave, refined around the best peaks (and the current tempo). */
+  /** Reference cycle length for window sizes: the locked tempo, or the octave centre. */
+  private refCycle(): number {
+    return this.locked ? 480 / this.tracker.bpm : 480 / (1.5 * this.settings.bpmLo);
+  }
+
+  private foldOpt(depthCycles: number): FoldOptions {
+    return { bins: FOLD_BINS, tau: clamp(depthCycles * this.refCycle(), 2.5, 16) };
+  }
+
+  /**
+   * Hypotheses are ranked on a SHORT window (2 cycles) so that a real tempo
+   * change shows up quickly; the winner is then refined on the adaptive DEEP
+   * window, which is precise while the rhythm is stable.
+   */
   private searchTempo(env: Float32Array): CycleSearch {
     const lo = this.settings.bpmLo;
     // The octave is half-open [lo, 2 lo): its upper edge is excluded (e.g. 120 when searching 60..120,
@@ -537,24 +592,32 @@ export class AnalysisEngine {
     const Cmin = 480 / (2 * lo);
     const Cmax = 480 / lo;
     const tEnd = this.envEndTime;
-    const coarse = searchCycle(env, this.envRate, tEnd, Cmin / 1.03, Cmax * 1.03, FOLD, 0.006);
+    const rank = this.foldOpt(RANK_DEPTH);
+    const coarse = searchCycle(env, this.envRate, tEnd, Cmin / 1.03, Cmax * 1.03, rank, 0.006);
     const inRange = coarse.candidates.filter((c) => inOctave(c.bpm));
     const seeds = inRange.slice(0, 3).map((c) => c.period);
     if (this.locked) seeds.push(480 / this.tracker.bpm);
     const refined = seeds
-      .map((C) => searchCycle(env, this.envRate, tEnd, C * 0.985, C * 1.015, FOLD, 0.0008).best)
+      .map((C) => searchCycle(env, this.envRate, tEnd, C * 0.985, C * 1.015, rank, 0.0008).best)
       .filter((c): c is NonNullable<typeof c> => !!c && inOctave(c.bpm));
     const all = [...refined, ...inRange];
     all.sort((a, b) => b.sharpness - a.sharpness);
     const distinct: typeof all = [];
     for (const p of all) if (distinct.every((q) => Math.abs(p.period / q.period - 1) > 0.03)) distinct.push(p);
-    const best = distinct[0] ?? null;
+    let best = distinct[0] ?? null;
+    const margin = best && distinct[1] ? best.sharpness / Math.max(1e-9, distinct[1].sharpness) : best ? Infinity : 0;
+    if (best) {
+      // Precise period and sharpness from the deep window.
+      const deep = searchCycle(env, this.envRate, tEnd, best.period * 0.99, best.period * 1.01, this.foldOpt(this.depthCycles), 0.0004).best;
+      if (deep && Math.abs(deep.period / best.period - 1) < 0.008) best = deep;
+      distinct[0] = best;
+    }
     return {
       best,
       candidates: distinct.slice(0, 6),
       floor: coarse.floor,
       contrast: best ? best.sharpness / coarse.floor : 0,
-      margin: best && distinct[1] ? best.sharpness / Math.max(1e-9, distinct[1].sharpness) : best ? Infinity : 0,
+      margin,
     };
   }
 
@@ -584,8 +647,9 @@ export class AnalysisEngine {
         tr.anchor(t, tr.beatsAt(t), best.bpm);
         this.locked = true;
         this.switchVotes = 0;
+        this.depthCycles = RANK_DEPTH;
         this.updatePhase(env, true);
-      }
+      } else this.depthCycles = RANK_DEPTH;
       this.updateReferenceError(t);
       return;
     }
@@ -595,7 +659,11 @@ export class AnalysisEngine {
     if (Math.abs(rel) < 0.03) {
       tr.glideBpm(tr.bpm + 0.35 * (best.bpm - tr.bpm));
       this.switchVotes = 0;
+      // Stable rhythm: dig deeper (more precise tempo and phase).
+      this.depthCycles = Math.min(DEPTH_MAX, this.depthCycles + DEPTH_STEP);
     } else {
+      // A competing hypothesis: go shallow at once so the new tempo can show through.
+      this.depthCycles = DEPTH_MIN;
       // A different hypothesis wins: accept it only if it persists, then glide (no jump, no reset).
       if (this.switchPeriod > 0 && Math.abs(best.period / this.switchPeriod - 1) < 0.015) this.switchVotes++;
       else {
@@ -605,6 +673,7 @@ export class AnalysisEngine {
       if (this.switchVotes >= SWITCH_VOTES && conf.margin >= 1.15) {
         tr.glideBpm(best.bpm);
         this.switchVotes = 0;
+        this.depthCycles = DEPTH_MIN;
       }
     }
     if (this.settings.autoPhase) this.updatePhase(env, false);
@@ -620,7 +689,7 @@ export class AnalysisEngine {
     const tr = this.tracker;
     const C = 480 / tr.bpm;
     const tEnd = this.envEndTime;
-    const prof = fold(env, this.envRate, tEnd, C, FOLD).profile;
+    const prof = fold(env, this.envRate, tEnd, C, this.foldOpt(this.depthCycles)).profile;
     const B = prof.length;
     const tmpl = this.templates[this.settings.clave];
     const corr = circularCorr(prof, tmpl);
@@ -758,6 +827,7 @@ export class AnalysisEngine {
         phaseStrength: this.phaseStrength,
         phaseMethod: this.phaseMethod,
         templateR: this.templateR,
+        depthCycles: this.depthCycles,
         downbeat: !this.settings.autoDownbeat ? 'off' : this.userDownbeat ? 'user' : 'auto',
         refPhaseErrorMs: this.refPhaseErrorMs,
         refBpmError: this.refBpmError,

@@ -27,6 +27,7 @@ export function engineSettings(s: Settings) {
     dbRange: s.spec.dbRange,
     fmax: s.spec.fmax,
     autoDownbeat: s.autoDownbeat,
+    tapeMode: s.tapeMode,
     clave: s.clave.dir,
   };
 }

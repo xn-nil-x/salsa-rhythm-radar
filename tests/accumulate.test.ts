@@ -102,7 +102,7 @@ describe('ageing and onset folding', () => {
   });
 
   it('splits an onset between neighbouring bins (no hard quantisation)', () => {
-    const d = foldOnsets([{ time: 100, channel: 0, strength: 1 }], 1, 10, { phaseOf: () => 0.125, cycleDur: 2, now: 100, memoryCycles: 8 });
+    const d = foldOnsets([{ time: 100, beats: 0, channel: 0, strength: 1 }], 1, 10, { phaseOf: () => 0.125, cycleDur: 2, now: 100, memoryCycles: 8 });
     expect(d[1]).toBeCloseTo(0.75, 9);
     expect(d[2]).toBeCloseTo(0.25, 9);
   });

@@ -19,6 +19,8 @@ export class FrameHistory {
   readonly re: Float32Array;
   readonly im: Float32Array;
   readonly time: Float64Array;
+  /** Beat number assigned by the clock at recording time (for 'recorded' tape mode). */
+  readonly beats: Float64Array;
   private head = 0;
   private count = 0;
 
@@ -29,6 +31,7 @@ export class FrameHistory {
     this.re = new Float32Array(capacity * bins);
     this.im = new Float32Array(capacity * bins);
     this.time = new Float64Array(capacity);
+    this.beats = new Float64Array(capacity);
   }
 
   get size(): number {
@@ -40,7 +43,7 @@ export class FrameHistory {
     this.count = 0;
   }
 
-  push(t: number, re: ArrayLike<number>, im: ArrayLike<number>): number {
+  push(t: number, re: ArrayLike<number>, im: ArrayLike<number>, beats = 0): number {
     const slot = this.head;
     const base = slot * this.bins;
     for (let k = 0; k < this.bins; k++) {
@@ -48,6 +51,7 @@ export class FrameHistory {
       this.im[base + k] = im[k];
     }
     this.time[slot] = t;
+    this.beats[slot] = beats;
     this.head = (this.head + 1) % this.capacity;
     if (this.count < this.capacity) this.count++;
     return slot;
@@ -60,8 +64,12 @@ export class FrameHistory {
   }
 }
 
-/** Maps audio time to cycle phase (0..1) under the current clock. */
-export type PhaseMap = (t: number) => number;
+/**
+ * Cycle phase (0..1) of an observation made at time t, which the clock of that
+ * moment numbered `beats`. 'refold' mode ignores `beats` and re-maps t with the
+ * current clock; 'recorded' mode uses `beats`.
+ */
+export type PhaseMap = (t: number, beats: number) => number;
 
 export interface FoldParams {
   phaseOf: PhaseMap;
@@ -128,7 +136,7 @@ export class FoldedSpectrogram {
     if (w < 2e-3) return;
     const A = this.angleBins;
     const K = Math.min(this.freqBins, h.bins);
-    const phi = p.phaseOf(t);
+    const phi = p.phaseOf(t, h.beats[slot]);
     const x = phi * A;
     const a0 = Math.floor(x);
     const f = x - a0;
@@ -213,6 +221,8 @@ export class FoldedSpectrogram {
 
 export interface OnsetRecord {
   time: number;
+  /** Beat number assigned by the clock at detection time. */
+  beats: number;
   channel: number;
   strength: number;
 }
@@ -226,7 +236,7 @@ export function foldOnsets(onsets: OnsetRecord[], channels: number, bins: number
   for (const o of onsets) {
     const w = ageWeight(p.now - o.time, p);
     if (w < 2e-3) continue;
-    const x = p.phaseOf(o.time) * bins;
+    const x = p.phaseOf(o.time, o.beats) * bins;
     const i = Math.floor(x);
     const f = x - i;
     const b0 = ((i % bins) + bins) % bins;

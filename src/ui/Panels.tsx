@@ -46,6 +46,12 @@ export function SettingsPanel() {
       <Field label="Начало восьмёрки" hint="«1» ищется по совпадению свёрнутого ритма со скелетом сальсы (конга, бас, колокол) с учётом выбранного направления клаве. Кнопка «Здесь 1» отключает автопоиск.">
         <label className="check"><input type="checkbox" checked={s.autoDownbeat} onChange={(e) => set({ autoDownbeat: e.target.checked })} /> {t('autoDownbeat')}</label>
       </Field>
+      <Field
+        label="Лента при смене темпа"
+        hint="Перематывать: вся накопленная история заново сворачивается текущим темпом — уточнение темпа выравнивает её, настоящая смена темпа сначала размывает старую часть. Фаза записи: каждое наблюдение остаётся на той доле, которую ему дали часы в момент записи — смена темпа ничего не размывает, но и прошлые ошибки не исправляются."
+      >
+        <Segmented<'refold' | 'recorded'> label="Лента при смене темпа" value={s.tapeMode} onChange={(tapeMode) => set({ tapeMode })} options={[['refold', 'Перематывать'], ['recorded', 'Фаза записи']]} />
+      </Field>
       <Field label="Автоматическая подстройка фазы">
         <label className="check"><input type="checkbox" checked={s.autoPhase} onChange={(e) => set({ autoPhase: e.target.checked })} /> плавная коррекция по найденным долям (PLL)</label>
       </Field>
@@ -142,6 +148,7 @@ export function DiagnosticsPanel() {
         </dd>
         <dt>Фаза долей</dt><dd>{tr.phaseMethod === 'template' ? 'по рисунку сальсы' : 'по гребёнке долей'} · доля/«&» ×{tr.phaseStrength.toFixed(2)}</dd>
         <dt>Сходство с сальсой</dt><dd>r = {tr.templateR.toFixed(2)} <span className="muted">(шаблон используется при r ≥ 0,35)</span></dd>
+        <dt>Глубина памяти темпа</dt><dd>{tr.depthCycles.toFixed(2).replace('.', ',')} восьмёрки <span className="muted">(1,5 — быстрая реакция, 6 — максимальная точность)</span></dd>
         <dt>«1»</dt><dd>{tr.downbeat === 'auto' ? 'автоматически (по рисунку)' : tr.downbeat === 'user' ? 'задана вручную' : 'автопоиск выключен'}</dd>
         {tr.refPhaseErrorMs !== null && (
           <>

@@ -21,6 +21,8 @@ export interface Settings {
   autoPhase: boolean;
   /** Find count 1 automatically from the salsa rhythm template. */
   autoDownbeat: boolean;
+  /** Tape folding: 'refold' (current clock, default) or 'recorded' (phase at recording time). */
+  tapeMode: 'refold' | 'recorded';
   spec: {
     display: AccumDisplay;
     scale: FreqScale;
@@ -51,6 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   memoryCycles: 8,
   autoPhase: true,
   autoDownbeat: true,
+  tapeMode: 'refold',
   spec: { display: 'power', scale: 'log', r0: 0.2, fmax: 5000, dbRange: 60, showRings: true },
   demo: { bpm: 180, jitterMs: 0, dropProb: 0, noiseDb: -120, volume: 0.8 },
   theme: 'auto',

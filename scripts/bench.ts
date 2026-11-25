@@ -77,3 +77,35 @@ for (const c of cases) {
   const f = (x: number | null, d = 1) => (x === null || Number.isNaN(x) ? '—' : x.toFixed(d));
   console.log(`| ${c.name}${c.bpmLo ? '' : ''} | ${m.truth.toFixed(1)} | ${f(m.est, 2)} | ${f(m.lock)} | ${f(m.mean)} | ${f(m.max)} | ${f(m.cpu, 2)} |`);
 }
+
+// ---------------------------------------------------------------- tempo change 180 -> 170
+{
+  const a = renderRhythm({ sampleRate: SR, bpm: 180, cycles: 5, clave: '3-2', layers: FULL, jitterMs: 4, seed: 9 });
+  const b = renderRhythm({ sampleRate: SR, bpm: 170, cycles: 7, clave: '3-2', layers: FULL, jitterMs: 4, seed: 10 });
+  const cutA = a.cycleSamples * 5;
+  const sig = new Float32Array(cutA + b.samples.length);
+  sig.set(a.samples.subarray(0, cutA), 0);
+  sig.set(b.samples, cutA);
+  const tChange = cutA / SR;
+  const e = new AnalysisEngine(SR, {});
+  let relock: number | null = null;
+  const errs: number[] = [];
+  const bpmErr: number[] = [];
+  let next = tChange;
+  for (let i = 0; i + 1024 <= sig.length; i += 1024) {
+    e.push(i, sig.subarray(i, i + 1024));
+    const t = (i + 1024) / SR;
+    if (t < next) continue;
+    next += 0.25;
+    const ok = Math.abs(e.tracker.bpm / b.bpm - 1) < 0.01;
+    if (ok && relock === null) relock = t - tChange;
+    if (!ok) relock = null;
+    if (relock !== null && t - tChange > relock + 2) {
+      const truth = ((t - tChange) * b.bpm) / 60;
+      errs.push(Math.abs(wrapHalf(e.tracker.beatsAt(t) - truth)) * (60000 / b.bpm));
+      bpmErr.push(Math.abs(e.tracker.bpm - b.bpm));
+    }
+  }
+  const mean = (x: number[]) => (x.length ? x.reduce((p, q) => p + q, 0) / x.length : NaN);
+  console.log(`\nСмена темпа 180 → 170 на ${tChange.toFixed(1)} с: перестройка ${relock === null ? '—' : relock.toFixed(1)} с; после неё |ΔBPM| ${mean(bpmErr).toFixed(3)}, |Δфазы| ср. ${mean(errs).toFixed(1)} мс, макс. ${errs.length ? Math.max(...errs).toFixed(1) : '—'} мс`);
+}
