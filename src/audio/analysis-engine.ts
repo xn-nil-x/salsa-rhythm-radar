@@ -5,23 +5,30 @@
  * the app and directly in Node for tests. All times are audio-clock seconds
  * (sample frame / sampleRate), identical to AudioContext.currentTime.
  *
- * Pipeline per hop:   samples -> FeatureExtractor (RMS, band energy, flux)
- *                     -> OnsetDetector per band -> EventAccumulator
- *                     -> onset envelope -> tempo (ACF) + beat phase (comb)
- *                     -> Transport (PLL-like, slew-limited phase correction)
- * Per phase slot:     samples at an exact cycle position -> FFT
- *                     -> PolarSpectrogram (power + complex accumulators)
+ *  hop 512:   samples -> FeatureExtractor (RMS, band energy, flux)
+ *             -> OnsetDetector per band -> onset history ("tape")
+ *             -> onset envelope (30 s)
+ *  every 0.5 s: hierarchical epoch folding of the envelope over the whole
+ *             8-count cycle -> tempo + confidence; folded profile x salsa
+ *             template -> beat phase and count 1 -> Transport (smooth
+ *             glides, slew-limited phase correction)
+ *  hop 1024:  FFT 2048 -> complex spectrum history ("tape")
+ *  display:   onset and spectrum histories are re-folded with the CURRENT
+ *             clock, so the accumulated image follows tempo/phase changes
+ *             instead of being reset.
  */
 import { FFT, hann } from '../dsp/fft';
 import { FeatureExtractor, N_BANDS } from '../dsp/features';
 import { OnsetDetector } from '../dsp/onset';
-import { combResponse, estimateBeatPhase, estimateTempo, type TempoEstimate } from '../dsp/tempo';
-import { EventAccumulator } from '../accumulate/event-accumulator';
-import { PolarSpectrogram, type AccumDisplay } from '../accumulate/polar-spectrogram';
+import { beatGrid, fold, searchCycle, type CycleSearch, type FoldOptions } from '../dsp/folding';
+import { FoldedSpectrogram, FrameHistory, foldOnsets, type AccumDisplay, type OnsetRecord } from '../accumulate/folded';
+import { patternPhases, getPattern } from '../rhythm/library';
+import { patternProfile } from '../rhythm/matching';
+import type { ClaveDirection } from '../rhythm/types';
 import { Transport } from './transport';
 import { clamp, frac, wrapHalf } from '../util/math';
 
-export const ALGORITHM_VERSION = 'srr-analysis-0.1.0';
+export const ALGORITHM_VERSION = 'srr-analysis-0.2.0';
 
 export type ClockMode = 'auto' | 'manual' | 'reference';
 
@@ -34,10 +41,14 @@ export interface EngineSettings {
   dbRange: number;
   /** Tempo search octave is [bpmLo, 2*bpmLo): resolves the 90/180 ambiguity explicitly. */
   bpmLo: number;
-  /** Highest frequency kept in the polar spectrogram, Hz. */
+  /** Highest frequency shown in the polar spectrogram, Hz. */
   fmax: number;
   /** Continuous phase correction from the beat tracker. */
   autoPhase: boolean;
+  /** Find count 1 automatically from the salsa rhythm template. */
+  autoDownbeat: boolean;
+  /** Clave direction assumed by the phase template. */
+  clave: ClaveDirection;
 }
 
 export const DEFAULT_SETTINGS: EngineSettings = {
@@ -48,6 +59,8 @@ export const DEFAULT_SETTINGS: EngineSettings = {
   bpmLo: 120,
   fmax: 5000,
   autoPhase: true,
+  autoDownbeat: true,
+  clave: '3-2',
 };
 
 /** Number of event-density channels: one per band + combined. */
@@ -71,12 +84,26 @@ export interface ClockState {
   cycleBeats: number;
 }
 
+export type ConfidenceLevel = 'none' | 'weak' | 'likely' | 'reliable';
+
 export interface TrackerState {
   locked: boolean;
   bpm: number;
+  /** 0..1 summary for meters; see `level` for the meaning. */
   confidence: number;
+  level: ConfidenceLevel;
+  /** How many times clearer than noise the folded rhythm is (≈1 = no rhythm). */
+  sharpness: number;
+  /** Best hypothesis vs the strongest different one (1 = tie). */
+  margin: number;
+  /** Competing tempo hypotheses, strongest first (score = sharpness). */
+  candidates: Array<{ bpm: number; score: number }>;
+  /** Phase evidence: template (or comb) on-beat vs half-beat-shifted (≥1). */
   phaseStrength: number;
-  candidates: TempoEstimate['candidates'];
+  phaseMethod: 'template' | 'comb';
+  /** Pearson r of the folded cycle profile with the salsa template (-1..1). */
+  templateR: number;
+  downbeat: 'auto' | 'user' | 'off';
   /** Tracker vs reference clock (Demo only). */
   refPhaseErrorMs: number | null;
   refBpmError: number | null;
@@ -106,20 +133,40 @@ export interface EngineSnapshot {
 }
 
 const RING = 1 << 18;
-/** Systematic delay between an attack and the flux peak of the hop it falls in. Calibrated in tests. */
-const ONSET_LAG = 0;
 /** Mean-square level below which a spectrogram frame counts as silence (-80 dBFS). */
 const SILENCE_MS = 1e-8;
-/** Consecutive tempo updates (0.5 s each) that must agree before a half-beat phase jump. */
+/** Onset envelope kept for tempo folding, seconds. */
+const ENV_SECONDS = 30;
+/** Maximum history of the "tape" (spectra and onsets), seconds. */
+const MAX_HISTORY = 90;
+/** Tempo folding: phase bins per cycle and envelope memory. */
+const FOLD: FoldOptions = { bins: 64, tau: 8 };
+/** Consecutive updates (0.5 s each) needed to accept a half-beat phase jump / tempo switch / new count 1. */
 const FLIP_VOTES = 4;
-/** A half-beat jump needs the comb response at the new phase to exceed the current one by this factor. */
-const FLIP_MARGIN = 1.15;
+const SWITCH_VOTES = 3;
+const DOWNBEAT_VOTES = 3;
+/** Required evidence ratio for a half-beat jump. */
+const FLIP_MARGIN = 1.3;
+/** Minimum Pearson r between folded profile and salsa template for the template to decide the phase. */
+const TEMPLATE_MIN_R = 0.35;
+
+/** Confidence thresholds, calibrated on the synthetic benchmark (docs/research/TEMPO.md). */
+export function confidenceOf(s: CycleSearch | null): { level: ConfidenceLevel; value: number; sharpness: number; margin: number } {
+  if (!s?.best) return { level: 'none', value: 0, sharpness: 0, margin: 0 };
+  const sh = s.best.sharpness;
+  const m = Number.isFinite(s.margin) ? s.margin : 3;
+  const level: ConfidenceLevel = sh >= 6 && m >= 1.6 ? 'reliable' : sh >= 4 && m >= 1.3 ? 'likely' : sh >= 2.5 ? 'weak' : 'none';
+  const a = clamp(Math.log(sh / 2) / Math.log(12 / 2), 0, 1);
+  const b = clamp((m - 1) / 0.8, 0, 1);
+  return { level, value: Math.sqrt(a * b), sharpness: sh, margin: m };
+}
 
 export class AnalysisEngine {
   readonly sr: number;
   readonly hop: number;
   readonly envRate: number;
   readonly specN: number;
+  readonly specHop: number;
   readonly angleBins = 256;
   readonly densityBins = 128;
   settings: EngineSettings;
@@ -131,6 +178,7 @@ export class AnalysisEngine {
   private readonly ring = new Float32Array(RING);
   private head = -1;
   private hopEnd = 0;
+  private specEnd = 0;
   private samplesIn = 0;
 
   private features: FeatureExtractor;
@@ -142,26 +190,35 @@ export class AnalysisEngine {
   private envEndTime = 0;
   private hopsSinceTempo = 0;
 
+  // tracker state
   private locked = false;
-  private candBpm = 0;
+  private candPeriod = 0;
   private candCount = 0;
-  private disagree = 0;
-  private lowConf = 0;
-  private lastEstimate: TempoEstimate = { bpm: 0, confidence: 0, candidates: [] };
-  private phaseStrength = 0;
+  private switchPeriod = 0;
+  private switchVotes = 0;
   private flipVotes = 0;
+  private downVotes = 0;
+  private downTarget = 0;
+  private lowConf = 0;
+  private userDownbeat = false;
+  private lastSearch: CycleSearch | null = null;
+  private phaseStrength = 0;
+  private templateR = 0;
+  private phaseMethod: 'template' | 'comb' = 'comb';
   private refPhaseErrorMs: number | null = null;
   private refBpmError: number | null = null;
+  private readonly templates: Record<ClaveDirection, Float32Array>;
 
-  readonly events: EventAccumulator;
-  private spec: PolarSpectrogram;
-  private specFFT: FFT;
-  private specWin: Float32Array;
-  private specNorm = 1;
+  // the "tape"
+  private onsetHist: OnsetRecord[] = [];
+  private readonly frames: FrameHistory;
+  private spec: FoldedSpectrogram;
+  private readonly specFFT: FFT;
+  private readonly specWin: Float32Array;
+  private readonly specNorm: number;
   private readonly specRe: Float64Array;
   private readonly specIm: Float64Array;
-  private nextSlot = Number.NaN;
-  private cycles = 0;
+  private lastRebuild = -Infinity;
 
   private pendingOnsets: ObservedOnset[] = [];
   private onsetCounts = new Array<number>(N_CHANNELS).fill(0);
@@ -169,7 +226,6 @@ export class AnalysisEngine {
   private bandEnergy = new Float32Array(N_BANDS);
   private workMs = 0;
   private workAudioS = 0;
-  private hopsCount = 0;
 
   constructor(sampleRate: number, settings: Partial<EngineSettings> = {}) {
     this.sr = sampleRate;
@@ -177,11 +233,11 @@ export class AnalysisEngine {
     this.hop = sampleRate > 60000 ? 1024 : 512;
     this.envRate = sampleRate / this.hop;
     this.specN = sampleRate > 60000 ? 4096 : 2048;
+    this.specHop = this.specN / 2;
     this.features = new FeatureExtractor(sampleRate, this.hop * 2);
     this.resetOnsetDetectors();
-    this.envLen = Math.round(this.envRate * 8);
+    this.envLen = Math.round(this.envRate * ENV_SECONDS);
     this.env = new Float32Array(this.envLen);
-    this.events = new EventAccumulator(N_CHANNELS, this.densityBins);
     this.specFFT = new FFT(this.specN);
     this.specWin = hann(this.specN);
     let s = 0;
@@ -189,8 +245,12 @@ export class AnalysisEngine {
     this.specNorm = 2 / s;
     this.specRe = new Float64Array(this.specN);
     this.specIm = new Float64Array(this.specN);
-    this.spec = new PolarSpectrogram(this.angleBins, this.specBinsFor(this.settings.fmax));
-    this.tracker.bpm = 2 * this.settings.bpmLo * 0.75;
+    // History keeps spectra up to 10 kHz so the display range can change without losing data.
+    const histBins = Math.min(this.specN / 2, Math.ceil(10000 / (sampleRate / this.specN)) + 1);
+    this.frames = new FrameHistory(Math.ceil((MAX_HISTORY * sampleRate) / this.specHop), histBins);
+    this.spec = new FoldedSpectrogram(this.angleBins, this.specBinsFor(this.settings.fmax));
+    this.tracker.bpm = 1.5 * this.settings.bpmLo;
+    this.templates = { '3-2': buildTemplate('3-2', FOLD.bins), '2-3': buildTemplate('2-3', FOLD.bins) };
   }
 
   // ---------------------------------------------------------------- clock
@@ -212,6 +272,12 @@ export class AnalysisEngine {
     return this.head < 0 ? 0 : this.head / this.sr;
   }
 
+  private cycleDur(): number {
+    return (this.settings.cycleBeats * 60) / this.clock.bpm;
+  }
+
+  private phaseOf = (t: number): number => frac(this.clock.cycleBeatsAt(t) / this.settings.cycleBeats);
+
   setClockMode(mode: ClockMode): void {
     if (mode === this.mode) return;
     const t = this.now;
@@ -223,61 +289,55 @@ export class AnalysisEngine {
       this.tracker.offset = Math.round(this.fixedClock.cycleBeatsAt(t) - this.tracker.beatsAt(t));
     }
     this.mode = mode;
-    this.resyncSlots();
   }
 
   /** Ground truth clock (Demo): count 1 at beat 0. */
   setReference(tRef: number, beatRef: number, bpm: number): void {
     this.fixedClock.anchor(tRef, beatRef, bpm);
     this.fixedClock.offset = 0;
-    if (this.mode !== 'reference') this.mode = 'reference';
-    this.resetAccumulators();
+    this.mode = 'reference';
   }
 
   setBpm(bpm: number): void {
-    const t = this.now;
     if (this.mode === 'auto') {
-      this.tracker.setBpm(bpm, t);
+      this.tracker.glideBpm(bpm);
       this.settings.bpmLo = octaveLo(bpm, this.settings.bpmLo);
       this.locked = true;
-      this.candBpm = bpm;
-      this.disagree = 0;
+      this.candPeriod = 480 / bpm;
+      this.switchVotes = 0;
     } else {
-      this.fixedClock.setBpm(bpm, t);
+      this.fixedClock.glideBpm(bpm);
     }
-    this.resetAccumulators();
   }
 
   /** Double or halve the tempo (and, in auto mode, the search octave). */
   scaleBpm(factor: number): void {
-    const t = this.now;
     if (this.mode === 'auto') {
       this.settings.bpmLo = clamp(this.settings.bpmLo * factor, 30, 240);
-      this.tracker.setBpm(this.tracker.bpm * factor, t);
-      this.candBpm = 0;
+      this.tracker.glideBpm(this.tracker.bpm * factor);
+      this.switchVotes = 0;
     } else {
-      this.fixedClock.setBpm(this.fixedClock.bpm * factor, t);
+      this.fixedClock.glideBpm(this.fixedClock.bpm * factor);
     }
-    this.resetAccumulators();
   }
 
-  /** Declare that count 1 is (the beat nearest to) audio time t. */
+  /** Declare that count 1 is (the beat nearest to) audio time t. Disables automatic count 1. */
   setCountOne(t: number): void {
     const c = this.clock;
     const cb = this.settings.cycleBeats;
     const cur = c.cycleBeatsAt(t);
-    const exact = this.mode === 'manual';
-    const target = exact ? cur : Math.round(cur);
+    const target = this.mode === 'manual' ? cur : Math.round(cur);
     let shift = -(((target % cb) + cb) % cb);
     if (shift < -cb / 2) shift += cb;
-    c.offset += shift;
-    this.rotateAccumulators(shift);
+    c.glideOffset(c.offset + shift);
+    if (this.mode === 'auto') this.userDownbeat = true;
   }
 
   /** Shift which part of the cycle is shown at the top, in beats. */
   nudge(beats: number): void {
-    this.clock.offset += beats;
-    this.rotateAccumulators(beats);
+    const c = this.clock;
+    c.glideOffset((c.offsetTarget ?? c.offset) + beats);
+    if (this.mode === 'auto' && Math.abs(beats - Math.round(beats)) > 1e-6) this.userDownbeat = true;
   }
 
   /** Tap tempo: times are audio-clock seconds of the user's taps. */
@@ -296,24 +356,24 @@ export class AnalysisEngine {
     if (this.mode === 'auto') {
       this.settings.bpmLo = octaveLo(bpm, this.settings.bpmLo);
       this.locked = true;
-      this.candBpm = bpm;
-      this.disagree = 0;
+      this.candPeriod = 480 / bpm;
+      this.switchVotes = 0;
     }
-    this.resetAccumulators();
   }
 
   updateSettings(s: Partial<EngineSettings>): void {
     const prev = this.settings;
     this.settings = { ...prev, ...s };
     if (s.fmax !== undefined && this.specBinsFor(s.fmax) !== this.spec.freqBins) {
-      this.spec = new PolarSpectrogram(this.angleBins, this.specBinsFor(s.fmax));
-      this.resyncSlots();
+      this.spec = new FoldedSpectrogram(this.angleBins, this.specBinsFor(s.fmax));
+      this.lastRebuild = -Infinity;
     }
-    if (s.cycleBeats !== undefined && s.cycleBeats !== prev.cycleBeats) this.resetAccumulators();
     if (s.bpmLo !== undefined && s.bpmLo !== prev.bpmLo && this.mode === 'auto') {
       this.locked = false;
-      this.candBpm = 0;
+      this.candPeriod = 0;
     }
+    if (s.autoDownbeat === true && !prev.autoDownbeat) this.userDownbeat = false;
+    this.lastRebuild = -Infinity;
   }
 
   // ---------------------------------------------------------------- input
@@ -325,12 +385,14 @@ export class AnalysisEngine {
     if (this.head < 0) {
       this.head = startFrame;
       this.hopEnd = startFrame + this.features.n;
+      this.specEnd = startFrame + this.specN;
     } else if (startFrame > this.head) {
       const gap = startFrame - this.head;
       if (gap > RING / 2) {
         this.discontinuity();
         this.head = startFrame;
         this.hopEnd = startFrame + this.features.n;
+        this.specEnd = startFrame + this.specN;
       } else {
         for (let i = 0; i < gap; i++) this.ring[(this.head + i) & (RING - 1)] = 0;
         this.head += gap;
@@ -348,7 +410,10 @@ export class AnalysisEngine {
       this.processHop(this.hopEnd);
       this.hopEnd += this.hop;
     }
-    this.processSlots();
+    while (this.specEnd <= this.head) {
+      this.processSpecFrame(this.specEnd);
+      this.specEnd += this.specHop;
+    }
     this.workMs += nowMs() - t0;
     this.workAudioS += src.length / this.sr;
   }
@@ -361,16 +426,17 @@ export class AnalysisEngine {
     this.env.fill(0);
     this.envCount = 0;
     this.envPos = 0;
-    this.locked = this.mode !== 'auto' ? this.locked : false;
-    this.candBpm = 0;
+    if (this.mode === 'auto') this.locked = false;
+    this.candPeriod = 0;
     this.resetAccumulators();
   }
 
+  /** Clear the tape (accumulated onsets and spectra). */
   resetAccumulators(): void {
-    this.events.reset();
-    this.spec.reset();
-    this.cycles = 0;
-    this.nextSlot = Number.NaN;
+    this.onsetHist = [];
+    this.frames.clear();
+    this.spec.clear();
+    this.lastRebuild = -Infinity;
   }
 
   // ---------------------------------------------------------------- per hop
@@ -384,7 +450,6 @@ export class AnalysisEngine {
     const f = this.features.process(frame);
     const t = (end - n / 2) / this.sr;
     const dt = this.hop / this.sr;
-    this.hopsCount++;
 
     this.rms += (f.rms - this.rms) * 0.1;
     for (let b = 0; b < N_BANDS; b++) this.bandEnergy[b] += (f.energy[b] - this.bandEnergy[b]) * 0.1;
@@ -392,19 +457,20 @@ export class AnalysisEngine {
     let all = 0;
     for (let b = 0; b < N_BANDS; b++) all += f.flux[b];
 
-    const clock = this.clock;
-    const cb = this.settings.cycleBeats;
-    const alpha = memoryAlpha(this.settings.memoryCycles);
-    this.events.sweep(frac(clock.cycleBeatsAt(t) / cb), alpha);
     for (let ch = 0; ch < N_CHANNELS; ch++) {
       const o = this.onsetDetectors[ch].push(ch === CHANNEL_ALL ? all : f.flux[ch], t, dt);
       if (o) {
-        const ot = o.time - ONSET_LAG;
-        const phase = frac(clock.cycleBeatsAt(ot) / cb);
-        this.events.add(ch, phase, Math.min(o.strength, 4));
         this.onsetCounts[ch]++;
-        if (this.pendingOnsets.length < 256) this.pendingOnsets.push({ time: ot, channel: ch, strength: o.strength, phase });
+        this.onsetHist.push({ time: o.time, channel: ch, strength: o.strength });
+        if (this.pendingOnsets.length < 256) this.pendingOnsets.push({ time: o.time, channel: ch, strength: o.strength, phase: this.phaseOf(o.time) });
       }
+    }
+    if (this.onsetHist.length > 4000 || (this.onsetHist.length && t - this.onsetHist[0].time > MAX_HISTORY)) {
+      const cut = t - MAX_HISTORY;
+      let i = 0;
+      while (i < this.onsetHist.length && this.onsetHist[i].time < cut) i++;
+      if (this.onsetHist.length - i > 4000) i = this.onsetHist.length - 4000;
+      this.onsetHist.splice(0, i);
     }
 
     this.env[this.envPos] = all;
@@ -421,6 +487,37 @@ export class AnalysisEngine {
     }
   }
 
+  private processSpecFrame(end: number): void {
+    const N = this.specN;
+    const s0 = end - N;
+    const re = this.specRe;
+    const im = this.specIm;
+    let ms = 0;
+    for (let i = 0; i < N; i++) {
+      const x = this.ring[(s0 + i) & (RING - 1)];
+      ms += x * x;
+      re[i] = x * this.specWin[i] * this.specNorm;
+      im[i] = 0;
+    }
+    // No signal is no observation: silent frames neither dilute power nor fake incoherence.
+    if (ms / N < SILENCE_MS) return;
+    this.specFFT.forward(re, im);
+    const slot = this.frames.push((s0 + N / 2) / this.sr, re, im);
+    // Incremental fold under the current clock; full refolds happen at display time.
+    this.spec.addSlot(this.frames, slot, this.foldParams());
+  }
+
+  private foldParams() {
+    return {
+      phaseOf: this.phaseOf,
+      cycleDur: this.cycleDur(),
+      now: this.now,
+      memoryCycles: this.settings.memoryCycles,
+      fftSize: this.specN,
+      sampleRate: this.sr,
+    };
+  }
+
   private envLinear(): Float32Array {
     const out = new Float32Array(this.envCount);
     const start = (this.envPos - this.envCount + this.envLen) % this.envLen;
@@ -428,85 +525,171 @@ export class AnalysisEngine {
     return out;
   }
 
-  private updateTempo(t: number): void {
-    // Shorter windows flip between the beat and the 1.5-beat (tresillo) period.
-    if (this.envCount < this.envRate * 5) return;
-    const env = this.envLinear();
+  // ---------------------------------------------------------------- tempo & phase
+
+  /** Global coarse scan of the octave, refined around the best peaks (and the current tempo). */
+  private searchTempo(env: Float32Array): CycleSearch {
     const lo = this.settings.bpmLo;
-    const est = estimateTempo(env, this.envRate, lo, 2 * lo);
-    this.lastEstimate = est;
+    // The octave is half-open [lo, 2 lo): its upper edge is excluded (e.g. 120 when searching 60..120,
+    // which would be the tresillo reading of 180). The grid extends 3 % beyond both edges so that
+    // peaks near an edge are found as real peaks, then out-of-octave candidates are dropped.
+    const inOctave = (bpm: number) => bpm >= lo * 0.995 && bpm < 2 * lo * 0.995;
+    const Cmin = 480 / (2 * lo);
+    const Cmax = 480 / lo;
+    const tEnd = this.envEndTime;
+    const coarse = searchCycle(env, this.envRate, tEnd, Cmin / 1.03, Cmax * 1.03, FOLD, 0.006);
+    const inRange = coarse.candidates.filter((c) => inOctave(c.bpm));
+    const seeds = inRange.slice(0, 3).map((c) => c.period);
+    if (this.locked) seeds.push(480 / this.tracker.bpm);
+    const refined = seeds
+      .map((C) => searchCycle(env, this.envRate, tEnd, C * 0.985, C * 1.015, FOLD, 0.0008).best)
+      .filter((c): c is NonNullable<typeof c> => !!c && inOctave(c.bpm));
+    const all = [...refined, ...inRange];
+    all.sort((a, b) => b.sharpness - a.sharpness);
+    const distinct: typeof all = [];
+    for (const p of all) if (distinct.every((q) => Math.abs(p.period / q.period - 1) > 0.03)) distinct.push(p);
+    const best = distinct[0] ?? null;
+    return {
+      best,
+      candidates: distinct.slice(0, 6),
+      floor: coarse.floor,
+      contrast: best ? best.sharpness / coarse.floor : 0,
+      margin: best && distinct[1] ? best.sharpness / Math.max(1e-9, distinct[1].sharpness) : best ? Infinity : 0,
+    };
+  }
+
+  private updateTempo(t: number): void {
+    if (this.envCount < this.envRate * 3) return;
+    const env = this.envLinear();
+    const s = this.searchTempo(env);
+    this.lastSearch = s;
+    const conf = confidenceOf(s);
     const tr = this.tracker;
 
-    if (est.confidence < 0.08) {
-      if (++this.lowConf > 6) this.locked = false;
+    if (!s.best || conf.level === 'none') {
+      if (++this.lowConf > 8) this.locked = false;
       this.updateReferenceError(t);
       return;
     }
     this.lowConf = 0;
+    const best = s.best;
 
     if (!this.locked) {
-      if (this.candBpm > 0 && Math.abs(est.bpm - this.candBpm) / this.candBpm < 0.03) this.candCount++;
+      if (this.candPeriod > 0 && Math.abs(best.period / this.candPeriod - 1) < 0.015) this.candCount++;
       else {
-        this.candBpm = est.bpm;
+        this.candPeriod = best.period;
         this.candCount = 1;
       }
-      if (this.candCount >= 3) {
-        tr.setBpm(est.bpm, t);
-        this.snapPhase(env, true);
+      if (this.candCount >= 2) {
+        tr.anchor(t, tr.beatsAt(t), best.bpm);
         this.locked = true;
-        this.disagree = 0;
-        if (this.mode === 'auto') this.resetAccumulators();
+        this.switchVotes = 0;
+        this.updatePhase(env, true);
       }
       this.updateReferenceError(t);
       return;
     }
 
-    const rel = (est.bpm - tr.bpm) / tr.bpm;
-    if (Math.abs(rel) < 0.04) {
-      tr.setBpm(tr.bpm + 0.3 * (est.bpm - tr.bpm), t);
-      this.disagree = 0;
-    } else if (++this.disagree >= 4) {
-      this.locked = false;
-      this.candBpm = 0;
+    const Ccur = 480 / (tr.bpmTarget ?? tr.bpm);
+    const rel = best.period / Ccur - 1;
+    if (Math.abs(rel) < 0.03) {
+      tr.glideBpm(tr.bpm + 0.35 * (best.bpm - tr.bpm));
+      this.switchVotes = 0;
+    } else {
+      // A different hypothesis wins: accept it only if it persists, then glide (no jump, no reset).
+      if (this.switchPeriod > 0 && Math.abs(best.period / this.switchPeriod - 1) < 0.015) this.switchVotes++;
+      else {
+        this.switchPeriod = best.period;
+        this.switchVotes = 1;
+      }
+      if (this.switchVotes >= SWITCH_VOTES && conf.margin >= 1.15) {
+        tr.glideBpm(best.bpm);
+        this.switchVotes = 0;
+      }
     }
-    if (this.settings.autoPhase) this.snapPhase(env, false);
+    if (this.settings.autoPhase) this.updatePhase(env, false);
     this.updateReferenceError(t);
   }
 
-  private snapPhase(env: Float32Array, hard: boolean): void {
+  /**
+   * Beat phase (and count 1) from the envelope folded at the tracker's cycle.
+   * With the salsa template the whole cycle pattern decides the phase, which
+   * resolves the beat vs "&" ambiguity that a beat comb cannot.
+   */
+  private updatePhase(env: Float32Array, hard: boolean): void {
     const tr = this.tracker;
-    const period = (this.envRate * 60) / tr.bpm;
-    const bp = estimateBeatPhase(env, period);
-    this.phaseStrength = bp.strength;
-    if (bp.strength < 0.05) return;
-    const tBeat = this.envEndTime - bp.offset / this.envRate - ONSET_LAG;
+    const C = 480 / tr.bpm;
+    const tEnd = this.envEndTime;
+    const prof = fold(env, this.envRate, tEnd, C, FOLD).profile;
+    const B = prof.length;
+    const tmpl = this.templates[this.settings.clave];
+    const corr = circularCorr(prof, tmpl);
+    const rot = peakOf(corr);
+    const perBeat = B / 8;
+    const alt = Math.max(at(corr, rot + perBeat / 2), at(corr, rot - perBeat / 2));
+    const tmplRatio = alt > 0 ? at(corr, rot) / alt : at(corr, rot) > 0 ? 3 : 0;
+    // Pearson r between the folded profile and the template: is this rhythm salsa-like at all?
+    // (Off-genre music, half-time counting or a single offbeat layer give a low r -> neutral comb.)
+    let pm = 0;
+    for (let i = 0; i < B; i++) pm += prof[i];
+    pm /= B;
+    let pn = 0;
+    let tn = 0;
+    for (let i = 0; i < B; i++) {
+      pn += (prof[i] - pm) ** 2;
+      tn += tmpl[i] ** 2;
+    }
+    this.templateR = pn > 0 && tn > 0 ? at(corr, rot) / Math.sqrt(pn * tn) : 0;
+    let beatT: number;
+    let tOne: number | null = null;
+    if (tmplRatio > 1.05 && this.templateR >= TEMPLATE_MIN_R) {
+      this.phaseMethod = 'template';
+      this.phaseStrength = tmplRatio;
+      tOne = (rot / B) * C;
+      beatT = tOne;
+    } else {
+      const g = beatGrid(prof);
+      this.phaseMethod = 'comb';
+      this.phaseStrength = g.onOffRatio;
+      beatT = g.offset * C;
+    }
+    // Bring the reference beat near "now" so the clock is evaluated where it matters.
+    const nb = Math.round((tEnd - beatT) / (C / 8));
+    const tBeat = beatT + nb * (C / 8);
     const b = tr.beatsAt(tBeat);
     const err = Math.round(b) - b;
     if (hard) {
       tr.anchor(tBeat, Math.round(b), tr.bpm);
       this.flipVotes = 0;
+    } else if (Math.abs(err) > 0.25) {
+      // Half-beat jump: only with clear and persistent evidence.
+      if (this.phaseStrength >= FLIP_MARGIN && ++this.flipVotes >= FLIP_VOTES) {
+        tr.setCorrection(err);
+        this.flipVotes = 0;
+      } else if (this.phaseStrength < FLIP_MARGIN) this.flipVotes = 0;
     } else {
-      // Beat vs off-beat ("&") is genuinely ambiguous in salsa (anticipated bass,
-      // offbeat piano, conga 4&): a half-beat jump is only accepted when the new
-      // phase is clearly stronger than the current grid AND that persists
-      // (hysteresis). Small errors are corrected right away.
-      if (Math.abs(err) > 0.25) {
-        const bEnd = tr.beatsAt(this.envEndTime - ONSET_LAG);
-        const curOffset = (bEnd - Math.floor(bEnd)) * period;
-        const respCur = combResponse(env, period, curOffset);
-        const respNew = combResponse(env, period, bp.offset);
-        if (respNew < FLIP_MARGIN * respCur) {
-          this.flipVotes = 0;
-          return;
-        }
-        if (++this.flipVotes < FLIP_VOTES) return;
-      }
       this.flipVotes = 0;
       tr.setCorrection(0.6 * err);
-      // Weak integral path: a persistent phase error means the tempo is slightly off.
-      // Kept small — the ACF estimate already steers tempo; a strong I-term oscillates.
-      const adj = clamp(2 * err, -0.003 * tr.bpm, 0.003 * tr.bpm);
-      tr.setBpm(tr.bpm + adj, this.envEndTime);
+    }
+
+    // Count 1 from the template (only when the template, not the comb, placed the phase).
+    if (tOne !== null && this.settings.autoDownbeat && !this.userDownbeat && this.settings.cycleBeats === 8) {
+      const nc = Math.round((tEnd - tOne) / C);
+      const cbAtOne = tr.cycleBeatsAt(tOne + nc * C) + (tr.offsetTarget ?? tr.offset) - tr.offset;
+      let k = Math.round(cbAtOne) % 8;
+      if (k < 0) k += 8;
+      if (k > 4) k -= 8;
+      if (k !== 0) {
+        if (k === this.downTarget) this.downVotes++;
+        else {
+          this.downTarget = k;
+          this.downVotes = 1;
+        }
+        if (hard || this.downVotes >= DOWNBEAT_VOTES) {
+          tr.glideOffset((tr.offsetTarget ?? tr.offset) - k);
+          this.downVotes = 0;
+        }
+      } else this.downVotes = 0;
     }
   }
 
@@ -522,64 +705,10 @@ export class AnalysisEngine {
     this.refBpmError = this.tracker.bpm - ref.bpm;
   }
 
-  // ---------------------------------------------------------------- per slot
+  // ---------------------------------------------------------------- accumulation
 
   private specBinsFor(fmax: number): number {
-    return Math.min(this.specN / 2, Math.ceil(fmax / (this.sr / this.specN)) + 1);
-  }
-
-  private resyncSlots(): void {
-    this.nextSlot = Number.NaN;
-  }
-
-  private processSlots(): void {
-    const N = this.specN;
-    const A = this.angleBins;
-    const cb = this.settings.cycleBeats;
-    const clock = this.clock;
-    if (Number.isNaN(this.nextSlot)) {
-      const tAvail = (this.head - N / 2) / this.sr;
-      this.nextSlot = Math.floor((clock.cycleBeatsAt(tAvail) / cb) * A) + 1;
-    }
-    const alpha = memoryAlpha(this.settings.memoryCycles);
-    const K = this.spec.freqBins;
-    for (let guard = 0; guard < A; guard++) {
-      const s = this.nextSlot;
-      const t = clock.timeAtCycleBeats((s * cb) / A);
-      const start = t * this.sr - N / 2;
-      const s0 = Math.floor(start);
-      if (s0 + N > this.head) return;
-      if (s0 < this.head - RING + N) {
-        this.resyncSlots();
-        return;
-      }
-      const delta = start - s0;
-      const re = this.specRe;
-      const im = this.specIm;
-      let ms = 0;
-      for (let i = 0; i < N; i++) {
-        const x = this.ring[(s0 + i) & (RING - 1)];
-        ms += x * x;
-        re[i] = x * this.specWin[i] * this.specNorm;
-        im[i] = 0;
-      }
-      const a = ((s % A) + A) % A;
-      this.nextSlot = s + 1;
-      if (a === A - 1) this.cycles++;
-      // No signal is no observation: silent frames (< -80 dBFS) are not accumulated,
-      // so lead-in silence or pauses neither dilute power nor fake incoherence.
-      if (ms / N < SILENCE_MS) continue;
-      this.specFFT.forward(re, im);
-      // Frame starts `delta` samples early: X_wanted[k] = X[k] e^{+j 2 pi k delta / N}.
-      this.spec.accumulate(a, re.subarray(0, K), im.subarray(0, K), alpha, (-2 * Math.PI * delta) / N);
-    }
-  }
-
-  private rotateAccumulators(beats: number): void {
-    const cb = this.settings.cycleBeats;
-    this.events.rotate((beats / cb) * this.densityBins);
-    this.spec.rotate((beats / cb) * this.angleBins);
-    this.resyncSlots();
+    return Math.min(this.frames?.bins ?? this.specN / 2, Math.ceil(fmax / (this.sr / this.specN)) + 1);
   }
 
   private resetOnsetDetectors(): void {
@@ -588,38 +717,59 @@ export class AnalysisEngine {
     for (let ch = 0; ch < N_CHANNELS; ch++) this.onsetDetectors.push(new OnsetDetector(ch, fr));
   }
 
+  /** Cycles of data in the tape (for display). */
+  private cyclesInTape(): number {
+    const n = this.frames.size;
+    return n ? Math.floor((n * this.specHop) / this.sr / this.cycleDur()) : 0;
+  }
+
   // ---------------------------------------------------------------- output
 
   snapshot(withSpec = true): EngineSnapshot {
     const c = this.clock;
+    const p = this.foldParams();
+    const density = foldOnsets(this.onsetHist, N_CHANNELS, this.densityBins, p);
     let spec: Uint8Array | null = null;
     if (withSpec) {
+      // Refold the whole tape a few times per second: follows the clock smoothly.
+      if (this.now - this.lastRebuild > 0.2) {
+        this.spec.rebuild(this.frames, p);
+        this.lastRebuild = this.now;
+      }
       spec = new Uint8Array(this.angleBins * this.spec.freqBins);
-      this.spec.render(this.settings.display, this.spec.maxPowerDb(), this.settings.dbRange, spec);
+      this.spec.render(this.settings.display, this.settings.dbRange, spec);
     }
     const onsets = this.pendingOnsets;
     this.pendingOnsets = [];
-    const snap: EngineSnapshot = {
+    const conf = confidenceOf(this.locked ? this.lastSearch : null);
+    const lastConf = confidenceOf(this.lastSearch);
+    return {
       algorithm: ALGORITHM_VERSION,
       time: this.now,
       clock: { mode: this.mode, tRef: c.tRef, beatRef: c.beatRef, bpm: c.bpm, offset: c.offset, cycleBeats: this.settings.cycleBeats },
       tracker: {
         locked: this.locked,
         bpm: this.tracker.bpm,
-        confidence: this.locked ? this.lastEstimate.confidence : 0,
+        confidence: conf.value,
+        level: this.locked ? conf.level : 'none',
+        sharpness: lastConf.sharpness,
+        margin: lastConf.margin,
+        candidates: (this.lastSearch?.candidates ?? []).map((k) => ({ bpm: k.bpm, score: k.sharpness })),
         phaseStrength: this.phaseStrength,
-        candidates: this.lastEstimate.candidates,
+        phaseMethod: this.phaseMethod,
+        templateR: this.templateR,
+        downbeat: !this.settings.autoDownbeat ? 'off' : this.userDownbeat ? 'user' : 'auto',
         refPhaseErrorMs: this.refPhaseErrorMs,
         refBpmError: this.refBpmError,
       },
       onsets,
-      density: this.events.density.slice(),
+      density,
       densityBins: this.densityBins,
       spec,
       specAngleBins: this.angleBins,
       specFreqBins: this.spec.freqBins,
       specBinHz: this.sr / this.specN,
-      cycles: this.cycles,
+      cycles: this.cyclesInTape(),
       stats: {
         rms: this.rms,
         bandEnergyDb: Array.from(this.bandEnergy, (e) => 10 * Math.log10(e + 1e-12)),
@@ -629,13 +779,63 @@ export class AnalysisEngine {
         samplesIn: this.samplesIn,
       },
     };
-    return snap;
   }
 }
 
-/** Per-revisit retention for a memory of `n` cycles (1 = keep nothing). */
+/** Per-revisit retention for a memory of `n` cycles (kept for compatibility). */
 export function memoryAlpha(n: number): number {
   return n <= 1 ? 0 : Math.exp(-1 / n);
+}
+
+/** Salsa skeleton template (conga tumbao + bass tumbao + bongo bell), zero-mean, per clave direction. */
+function buildTemplate(clave: ClaveDirection, bins: number): Float32Array {
+  const t = new Float32Array(bins);
+  for (const id of ['conga-tumbao-basic', 'bass-tumbao', 'campana-bongo-bell']) {
+    const p = getPattern(id);
+    if (!p) continue;
+    const prof = patternProfile(patternPhases(p, clave), bins, 1.0);
+    const m = prof.reduce((a, b) => a + b, 0) / bins;
+    let norm = 0;
+    for (const v of prof) norm += (v - m) ** 2;
+    norm = Math.sqrt(norm) || 1;
+    for (let i = 0; i < bins; i++) t[i] += (prof[i] - m) / norm;
+  }
+  return t;
+}
+
+/** corr[r] = Σ_i (profile[i + r] - mean) * tmpl[i] : template placed with its count 1 at bin r. */
+function circularCorr(profile: Float32Array, tmpl: Float32Array): Float32Array {
+  const n = profile.length;
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += profile[i];
+  mean /= n;
+  const out = new Float32Array(n);
+  for (let r = 0; r < n; r++) {
+    let s = 0;
+    for (let i = 0; i < n; i++) s += (profile[(i + r) % n] - mean) * tmpl[i];
+    out[r] = s;
+  }
+  return out;
+}
+
+function at(v: Float32Array, pos: number): number {
+  const n = v.length;
+  let x = pos % n;
+  if (x < 0) x += n;
+  const i = Math.floor(x);
+  const f = x - i;
+  return v[i] * (1 - f) + v[(i + 1) % n] * f;
+}
+
+function peakOf(v: Float32Array): number {
+  const n = v.length;
+  let b = 0;
+  for (let i = 1; i < n; i++) if (v[i] > v[b]) b = i;
+  const y0 = v[(b - 1 + n) % n];
+  const y1 = v[b];
+  const y2 = v[(b + 1) % n];
+  const d = y0 - 2 * y1 + y2;
+  return b + (d < 0 ? (0.5 * (y0 - y2)) / d : 0);
 }
 
 /** Lower bound of the tempo octave that contains bpm, preferring the current one. */

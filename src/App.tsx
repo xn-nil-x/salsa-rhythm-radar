@@ -8,6 +8,7 @@ import { InfoSheet } from './ui/InfoSheet';
 import { LayerList } from './ui/LayerList';
 import { DiagnosticsPanel, SettingsPanel } from './ui/Panels';
 import { Radar } from './ui/Radar';
+import { Footwork } from './ui/Footwork';
 import { useResolvedDark } from './ui/theme';
 import type { ViewMode } from './state/store';
 
@@ -23,7 +24,7 @@ function useEngineBridge() {
       const now = performance.now();
       if (now - last < 250) return;
       last = now;
-      useApp.getState().ui({ stats: { bpm: s.clock.bpm, confidence: s.tracker.confidence, locked: s.tracker.locked, mode: s.clock.mode } });
+      useApp.getState().ui({ stats: { bpm: s.clock.bpm, confidence: s.tracker.confidence, locked: s.tracker.locked, mode: s.clock.mode, level: s.tracker.level, sharpness: s.tracker.sharpness } });
     });
     return () => {
       unsubSettings();
@@ -39,11 +40,19 @@ function Header() {
   const subtitle = source === 'live' ? 'Микрофон: анализ в реальном времени' : source === 'file' ? 'Анализ аудиофайла' : 'Demo: синтетические рисунки';
   let bpmText = '—';
   let note = t('bpm');
+  let tone = '';
   if (running) {
     if (stats.mode === 'auto' && !stats.locked) note = t('searching');
     else {
       bpmText = stats.bpm.toFixed(stats.bpm < 100 ? 1 : 0);
-      note = stats.mode === 'auto' ? `${t('bpm')} · ${t('confidence', { v: Math.round(stats.confidence * 100) })}` : stats.mode === 'reference' ? `${t('bpm')} · ${t('reference')}` : `${t('bpm')} · ${t('manual')}`;
+      if (stats.mode === 'auto') {
+        const lvl = { reliable: t('levelReliable'), likely: t('levelLikely'), weak: t('levelWeak'), none: t('levelNone') }[stats.level];
+        note = `${t('bpm')} · ${lvl} · ${t('clarity', { v: stats.sharpness.toFixed(1).replace('.', ',') })}`;
+        tone = stats.level === 'reliable' || stats.level === 'likely' ? 'ok' : 'weak';
+      } else {
+        note = stats.mode === 'reference' ? `${t('bpm')} · ${t('reference')}` : `${t('bpm')} · ${t('manual')}`;
+        tone = 'ok';
+      }
     }
   }
   return (
@@ -53,8 +62,8 @@ function Header() {
         <div className="muted">{subtitle}</div>
       </div>
       <div className="bpm">
-        <div className={`bpm-value ${running && (stats.mode !== 'auto' || stats.locked) ? 'ok' : ''}`}>{bpmText}</div>
-        <div className="muted small">{note}</div>
+        <div className={`bpm-value ${tone}`}>{bpmText}</div>
+        <div className="muted small" title={t('clarityHint')}>{note}</div>
       </div>
     </header>
   );
@@ -65,6 +74,7 @@ export function App() {
   useEngineBridge();
   const [beats, setBeats] = useState(0);
   const view = useApp((s) => s.settings.view);
+  const showFootwork = useApp((s) => s.settings.showFootwork);
   const set = useApp((s) => s.set);
   const running = useApp((s) => s.running);
   const error = useApp((s) => s.error);
@@ -81,9 +91,11 @@ export function App() {
         {!running && !error && <p className="hint">{t('idle')}</p>}
         <div className="view-switch">
           <Segmented<ViewMode> label="Вид" value={view} onChange={(v) => set({ view: v })} options={[['layers', t('viewLayers')], ['spectrum', t('viewSpectrum')]]} />
+          <button className={showFootwork ? 'on' : ''} aria-pressed={showFootwork} onClick={() => set({ showFootwork: !showFootwork })}>👣 {t('footwork')}</button>
         </div>
         <Radar onPhase={setBeats} />
         <PhaseBar beats={beats} />
+        {showFootwork && <Footwork />}
       </main>
 
       <aside className="side">

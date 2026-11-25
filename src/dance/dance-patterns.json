@@ -1,7 +1,26 @@
 {
-  "version": 1,
-  "note": "Reference timing schemes, not measurements of the user. Feet are given for the leader where the source is unambiguous; null otherwise.",
+  "version": 2,
+  "note": "Reference timing schemes for the LEADER, not measurements of the user. `direction` is where the stepping foot ends up: forward/back/side/diagonal = moves there, in-place = weight change where the foot already is, together = returns next to the other foot. Feet are given where the source is unambiguous; null otherwise.",
   "patterns": [
+    {
+      "id": "salsa-on2-et",
+      "name": "Salsa On2 (Eddie Torres)",
+      "tradition": "New York / On2 (ET2, 'ballroom 2')",
+      "cycleBeats": 8,
+      "events": [
+        { "count": 1, "type": "step", "foot": "L", "direction": "together", "weight": "full" },
+        { "count": 2, "type": "break", "foot": "R", "direction": "back", "weight": "full" },
+        { "count": 3, "type": "step", "foot": "L", "direction": "in-place", "weight": "full" },
+        { "count": 4, "type": "pause", "foot": null, "direction": "in-place", "weight": "none" },
+        { "count": 5, "type": "step", "foot": "R", "direction": "together", "weight": "full" },
+        { "count": 6, "type": "break", "foot": "L", "direction": "forward", "weight": "full" },
+        { "count": 7, "type": "step", "foot": "R", "direction": "in-place", "weight": "full" },
+        { "count": 8, "type": "pause", "foot": null, "direction": "in-place", "weight": "none" }
+      ],
+      "source": "Steps 1-2-3, 5-6-7, breaks on 2 and 6 (Eddie Torres / June LaBerta): The Dance Dojo 'New York Style Salsa On 2'. Leader breaks back with the right foot on 2 (sonycasino.com 'Son vs On2 timing'); forward with the left on 6 (Salsa Wiki ET2 description; follows from foot alternation).",
+      "status": "established",
+      "notes": "Follower mirrors: forward with the left foot on 2, back with the right on 6. Power On2 (Razz M'Tazz) differs: steps 2-3-4, 6-7-8, pauses on 1 and 5."
+    },
     {
       "id": "salsa-on1",
       "name": "Salsa On1",
@@ -10,34 +29,15 @@
       "events": [
         { "count": 1, "type": "break", "foot": "L", "direction": "forward", "weight": "full" },
         { "count": 2, "type": "step", "foot": "R", "direction": "in-place", "weight": "full" },
-        { "count": 3, "type": "step", "foot": "L", "direction": "back", "weight": "full" },
+        { "count": 3, "type": "step", "foot": "L", "direction": "together", "weight": "full" },
         { "count": 4, "type": "pause", "foot": null, "direction": "in-place", "weight": "none" },
         { "count": 5, "type": "break", "foot": "R", "direction": "back", "weight": "full" },
         { "count": 6, "type": "step", "foot": "L", "direction": "in-place", "weight": "full" },
-        { "count": 7, "type": "step", "foot": "R", "direction": "forward", "weight": "full" },
+        { "count": 7, "type": "step", "foot": "R", "direction": "together", "weight": "full" },
         { "count": 8, "type": "pause", "foot": null, "direction": "in-place", "weight": "none" }
       ],
       "source": "Standard 1-2-3, 5-6-7 count with the break (change of direction) on 1 and 5, pauses on 4 and 8. Wikipedia 'Salsa (dance)'.",
       "status": "established"
-    },
-    {
-      "id": "salsa-on2-et",
-      "name": "Salsa On2 (Eddie Torres)",
-      "tradition": "New York / On2 (ET2, 'ballroom 2')",
-      "cycleBeats": 8,
-      "events": [
-        { "count": 1, "type": "step", "foot": null, "direction": "in-place", "weight": "full" },
-        { "count": 2, "type": "break", "foot": null, "direction": "back", "weight": "full" },
-        { "count": 3, "type": "step", "foot": null, "direction": "in-place", "weight": "full" },
-        { "count": 4, "type": "pause", "foot": null, "direction": "in-place", "weight": "none" },
-        { "count": 5, "type": "step", "foot": null, "direction": "in-place", "weight": "full" },
-        { "count": 6, "type": "break", "foot": null, "direction": "forward", "weight": "full" },
-        { "count": 7, "type": "step", "foot": null, "direction": "in-place", "weight": "full" },
-        { "count": 8, "type": "pause", "foot": null, "direction": "in-place", "weight": "none" }
-      ],
-      "source": "Steps 1-2-3, 5-6-7 with the break step on 2 and 6 (Eddie Torres / June LaBerta). The Dance Dojo 'New York Style Salsa On 2'; Salsa Handbook. Sources disagree on where the basic starts and on foot assignment, so feet are left open.",
-      "status": "established",
-      "notes": "Power On2 (Razz M'Tazz) differs: steps 2-3-4, 6-7-8, pauses on 1 and 5."
     },
     {
       "id": "casino",
@@ -45,13 +45,13 @@
       "tradition": "Cuba, 'a tiempo'",
       "cycleBeats": 8,
       "events": [
-        { "count": 1, "type": "step", "foot": "L", "direction": "back", "weight": "full" },
+        { "count": 1, "type": "break", "foot": "L", "direction": "back", "weight": "full" },
         { "count": 2, "type": "step", "foot": "R", "direction": "in-place", "weight": "full" },
-        { "count": 3, "type": "step", "foot": "L", "direction": "forward", "weight": "full" },
+        { "count": 3, "type": "step", "foot": "L", "direction": "together", "weight": "full" },
         { "count": 4, "type": "pause", "foot": null, "direction": "in-place", "weight": "none" },
-        { "count": 5, "type": "step", "foot": "R", "direction": "forward", "weight": "full" },
+        { "count": 5, "type": "break", "foot": "R", "direction": "forward", "weight": "full" },
         { "count": 6, "type": "step", "foot": "L", "direction": "in-place", "weight": "full" },
-        { "count": 7, "type": "step", "foot": "R", "direction": "back", "weight": "full" },
+        { "count": 7, "type": "step", "foot": "R", "direction": "together", "weight": "full" },
         { "count": 8, "type": "pause", "foot": null, "direction": "in-place", "weight": "none" }
       ],
       "source": "Casino is danced 'a tiempo' on 1-2-3, 5-6-7 (guapea basic: leader back on 1). Directions are those of the guapea; casino is circular rather than linear.",
@@ -67,15 +67,15 @@
         { "count": 1, "type": "pause", "foot": null, "direction": "in-place", "weight": "none" },
         { "count": 2, "type": "step", "foot": null, "direction": "side", "weight": "full" },
         { "count": 3, "type": "step", "foot": null, "direction": "in-place", "weight": "full" },
-        { "count": 4, "type": "step", "foot": null, "direction": "in-place", "weight": "full" },
+        { "count": 4, "type": "step", "foot": null, "direction": "together", "weight": "full" },
         { "count": 5, "type": "pause", "foot": null, "direction": "in-place", "weight": "none" },
         { "count": 6, "type": "step", "foot": null, "direction": "side", "weight": "full" },
         { "count": 7, "type": "step", "foot": null, "direction": "in-place", "weight": "full" },
-        { "count": 8, "type": "step", "foot": null, "direction": "in-place", "weight": "full" }
+        { "count": 8, "type": "step", "foot": null, "direction": "together", "weight": "full" }
       ],
       "source": "Son is commonly danced 'a contratiempo': steps on 2-3-4 and 6-7-8, the downbeat 1/5 held. sonycasino.com 'What is the difference between son and On2 timing'.",
       "status": "simplified",
-      "notes": "Regional and personal variation is large; treat as one hypothesis."
+      "notes": "Regional and personal variation is large; treat as one hypothesis. Feet are not specified."
     }
   ]
 }

@@ -67,3 +67,37 @@ describe('dance library', () => {
     for (const d of [on1, on2]) expect(d.events.filter((e) => e.type === 'pause').map((e) => e.count)).toEqual([4, 8]);
   });
 });
+
+import { footworkAt } from '../src/dance/footwork';
+import { getDancePattern } from '../src/dance/library';
+
+describe('Eddie Torres On2 leader footwork', () => {
+  const et = getDancePattern('salsa-on2-et')!;
+  it('right foot breaks back on 2, left foot forward on 6, feet alternate', () => {
+    const steps = et.events.filter((e) => e.type !== 'pause');
+    expect(et.events.find((e) => e.count === 2)).toMatchObject({ foot: 'R', direction: 'back', type: 'break' });
+    expect(et.events.find((e) => e.count === 6)).toMatchObject({ foot: 'L', direction: 'forward', type: 'break' });
+    for (let i = 1; i < steps.length; i++) expect(steps[i].foot).not.toBe(steps[i - 1].foot);
+  });
+
+  it('a foot lands exactly on its count, flashes, and fades', () => {
+    const atLanding = footworkAt(et, 1); // count 2 (beats are 0-based)
+    expect(atLanding.R.pos.y).toBeCloseTo(1, 6); // right foot back
+    expect(atLanding.R.flash).toBeCloseTo(1, 6);
+    expect(atLanding.R.weight).toBe(true);
+    const later = footworkAt(et, 1.9);
+    expect(later.R.flash).toBeLessThan(0.2);
+    // Mid-flight before count 6: the left foot is on its way forward.
+    const flight = footworkAt(et, 5 - 0.1);
+    expect(flight.L.pos.y).toBeLessThan(0);
+    expect(flight.L.pos.y).toBeGreaterThan(-1);
+    expect(footworkAt(et, 5).L.pos.y).toBeCloseTo(-1, 6);
+  });
+
+  it('is periodic over the 8-count cycle', () => {
+    const a = footworkAt(et, 2.3);
+    const b = footworkAt(et, 2.3 + 8 * 5);
+    expect(b.L.pos).toEqual(a.L.pos);
+    expect(b.R.pos).toEqual(a.R.pos);
+  });
+});

@@ -17,7 +17,7 @@ const STATUS: Record<string, string> = {
 const DANCE_TYPE: Record<string, string> = {
   step: 'шаг', break: 'брейк (смена направления)', tap: 'касание без переноса', pause: 'пауза', turn: 'вращение', vertical: 'вертикальный акцент',
 };
-const DIR: Record<string, string> = { forward: 'вперёд', back: 'назад', side: 'вбок', diagonal: 'диагонально', 'in-place': 'на месте' };
+const DIR: Record<string, string> = { forward: 'вперёд', back: 'назад', side: 'вбок', diagonal: 'диагонально', 'in-place': 'на месте (перенос веса)', together: 'приставить' };
 
 export function InfoSheet() {
   const info = useApp((s) => s.info);

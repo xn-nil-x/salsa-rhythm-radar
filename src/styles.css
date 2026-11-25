@@ -66,6 +66,7 @@ h4 { font-size: 0.9rem; margin: 14px 0 4px; }
 .bpm { text-align: right; }
 .bpm-value { font-size: 2.1rem; font-weight: 700; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
 .bpm-value.ok { color: var(--accent); }
+.bpm-value.weak { color: #c98f3e; }
 
 .muted { color: var(--muted); }
 .small { font-size: 0.82rem; }
@@ -160,3 +161,27 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .kind-badge.dance { border-color: #9aa3ae; }
 table.events { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 8px; }
 table.events th, table.events td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+
+/* ---------- footwork panel ---------- */
+.footwork { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.footwork svg { display: block; width: 100%; max-width: 460px; margin: 0 auto; height: auto; }
+.fw-axis { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }
+.fw-hint { fill: var(--muted); font-size: 10px; }
+.foot-body { fill: transparent; stroke: var(--text); stroke-width: 2; transition: fill 0.12s; }
+.foot-body.weight { fill: color-mix(in srgb, var(--text) 78%, transparent); }
+.foot-glow { fill: #4f8fe0; opacity: 0; }
+.foot-glow.break { fill: #e08a2e; }
+.fw-any { fill: #4f8fe0; opacity: 0; }
+.fw-letter { font-size: 12px; font-weight: 700; fill: var(--muted); pointer-events: none; }
+.foot-body.weight + .fw-letter { fill: var(--card); }
+.fw-count { font-size: 40px; font-weight: 800; fill: var(--text); }
+.fw-action { font-size: 15px; font-weight: 600; fill: var(--text); }
+.fw-next { font-size: 12px; fill: var(--muted); }
+.fw-cell rect { fill: var(--btn); stroke: var(--line); }
+.fw-cell rect.brk { stroke: #e08a2e; stroke-width: 1.5; }
+.fw-cell.now rect { fill: var(--btn-on); }
+.fw-cell.now text { fill: var(--btn-on-text); }
+.fw-cnum { font-size: 10px; fill: var(--muted); }
+.fw-cfoot { font-size: 13px; font-weight: 700; fill: var(--text); }
+.fw-caption { text-align: center; margin-top: 2px; }
+.view-switch { gap: 8px; align-items: center; flex-wrap: wrap; }

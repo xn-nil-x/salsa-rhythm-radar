@@ -5,7 +5,7 @@ import { DANCE_PATTERNS } from '../dance/library';
 import { t } from '../i18n';
 import type { ClaveFamily } from '../rhythm/library';
 import type { ClaveDirection } from '../rhythm/types';
-import type { AccumDisplay } from '../accumulate/polar-spectrogram';
+import type { AccumDisplay } from '../accumulate/folded';
 import { useApp, type FreqScale, type Theme } from '../state/store';
 import { Segmented } from './Controls';
 
@@ -42,6 +42,9 @@ export function SettingsPanel() {
       </Field>
       <Field label="Накопление наблюдений" hint="Сколько циклов (восьмёрок) помнит радар; старые наблюдения затухают экспоненциально.">
         <Segmented<number> label="Память" value={s.memoryCycles} onChange={(memoryCycles) => set({ memoryCycles })} options={[[1, 'Мгнов.'], [4, '4'], [8, '8'], [16, '16'], [32, '32']]} />
+      </Field>
+      <Field label="Начало восьмёрки" hint="«1» ищется по совпадению свёрнутого ритма со скелетом сальсы (конга, бас, колокол) с учётом выбранного направления клаве. Кнопка «Здесь 1» отключает автопоиск.">
+        <label className="check"><input type="checkbox" checked={s.autoDownbeat} onChange={(e) => set({ autoDownbeat: e.target.checked })} /> {t('autoDownbeat')}</label>
       </Field>
       <Field label="Автоматическая подстройка фазы">
         <label className="check"><input type="checkbox" checked={s.autoPhase} onChange={(e) => set({ autoPhase: e.target.checked })} /> плавная коррекция по найденным долям (PLL)</label>
@@ -98,6 +101,8 @@ export function SettingsPanel() {
   );
 }
 
+const LEVEL: Record<string, string> = { reliable: 'надёжно', likely: 'вероятно', weak: 'неуверенно', none: 'нет ритма' };
+
 export function DiagnosticsPanel() {
   const [, force] = useState(0);
   useEffect(() => {
@@ -126,14 +131,18 @@ export function DiagnosticsPanel() {
       <dl>
         <dt>Часы</dt><dd>{snap.clock.mode} · {snap.clock.bpm.toFixed(2)} BPM · сдвиг {snap.clock.offset.toFixed(2)} доли</dd>
         <dt>Трекер</dt><dd>{tr.locked ? 'захвачен' : 'поиск'} · {tr.bpm.toFixed(2)} BPM</dd>
-        <dt>Уверенность темпа</dt><dd>{(tr.confidence * 100).toFixed(0)}%</dd>
-        <dt>Контраст долей</dt><dd>{(tr.phaseStrength * 100).toFixed(0)}%</dd>
+        <dt>Уверенность</dt><dd>{LEVEL[tr.level]} <span className="muted">(сводно {(tr.confidence * 100).toFixed(0)}%)</span></dd>
+        <dt>Чёткость ритма</dt><dd>×{tr.sharpness.toFixed(1)} <span className="muted">чётче шума (1 — ритма нет, ≥6 — надёжно)</span></dd>
+        <dt>Отрыв от 2-й гипотезы</dt><dd>×{Number.isFinite(tr.margin) ? tr.margin.toFixed(2) : '∞'} <span className="muted">(≥1,6 — надёжно)</span></dd>
         <dt>Гипотезы темпа</dt>
         <dd>
           {tr.candidates.map((c, i) => (
-            <span key={i} className={`cand ${i === 0 ? 'best' : ''}`}>{c.bpm.toFixed(1)} ({c.score.toFixed(2)})</span>
+            <span key={i} className={`cand ${i === 0 ? 'best' : ''}`}>{c.bpm.toFixed(1)} (×{c.score.toFixed(1)})</span>
           ))}
         </dd>
+        <dt>Фаза долей</dt><dd>{tr.phaseMethod === 'template' ? 'по рисунку сальсы' : 'по гребёнке долей'} · доля/«&» ×{tr.phaseStrength.toFixed(2)}</dd>
+        <dt>Сходство с сальсой</dt><dd>r = {tr.templateR.toFixed(2)} <span className="muted">(шаблон используется при r ≥ 0,35)</span></dd>
+        <dt>«1»</dt><dd>{tr.downbeat === 'auto' ? 'автоматически (по рисунку)' : tr.downbeat === 'user' ? 'задана вручную' : 'автопоиск выключен'}</dd>
         {tr.refPhaseErrorMs !== null && (
           <>
             <dt>Ошибка фазы vs эталон</dt><dd>{tr.refPhaseErrorMs.toFixed(1)} мс</dd>

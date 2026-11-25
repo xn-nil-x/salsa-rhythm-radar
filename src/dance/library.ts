@@ -12,7 +12,8 @@ export interface DanceEvent {
   count: number;
   type: DanceEventType;
   foot: 'L' | 'R' | null;
-  direction: 'forward' | 'back' | 'side' | 'diagonal' | 'in-place';
+  /** Where the stepping foot ends up; 'together' = next to the other foot, 'in-place' = weight change only. */
+  direction: 'forward' | 'back' | 'side' | 'diagonal' | 'in-place' | 'together';
   weight: 'full' | 'partial' | 'none';
   rotation?: { dir: 'L' | 'R'; degrees: number };
 }

@@ -8,6 +8,7 @@ import { INFERNO, INK } from '../viz/colormap';
 import { LAYERS, LAYER_BY_ID, patternForLayer } from '../viz/layers';
 import { RadarRenderer, type Palette, type RingSpec } from '../viz/radar-renderer';
 import { useResolvedDark } from './theme';
+import { displayClock } from './display-clock';
 
 /** Smoothly follows the analysis clock: small corrections are blended, large ones snap. */
 class DisplayClock {
@@ -74,6 +75,8 @@ export function Radar({ onPhase }: { onPhase: (beats: number) => void }) {
       const running = audioEngine.running;
       const t = audioEngine.displayTime();
       if (running && snap) lastBeats = clock.update(t, snap.clock);
+      displayClock.beats = lastBeats;
+      displayClock.running = running && !!snap;
       const cb = s.cycleBeats;
       const inCycle = ((lastBeats % cb) + cb) % cb;
       const q = Math.floor(inCycle * 4);

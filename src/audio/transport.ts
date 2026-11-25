@@ -41,6 +41,7 @@ export class Transport {
     this.beatRef = beatRef;
     this.bpm = clamp(bpm, 20, 480);
     this.pending = 0;
+    this.bpmTarget = null;
   }
 
   /** Replace the outstanding phase correction (beats); applied gradually by `advance`. */
@@ -52,14 +53,50 @@ export class Transport {
     return this.pending;
   }
 
-  /** Bleed a slice of the pending correction; call once per analysis hop. */
+  /** Tempo the clock glides to (null = none). */
+  bpmTarget: number | null = null;
+  /** Max relative tempo change per second while gliding (0.25 = 25 %/s). */
+  bpmGlide = 0.25;
+  /** Count-1 offset the clock glides to (null = none). */
+  offsetTarget: number | null = null;
+  /** Max offset change, beats per second. */
+  offsetGlide = 6;
+
+  /** Change tempo smoothly (phase stays continuous, no jumps). */
+  glideBpm(target: number): void {
+    this.bpmTarget = clamp(target, 20, 480);
+  }
+
+  /** Rotate count 1 smoothly to a new offset (beats). */
+  glideOffset(target: number): void {
+    this.offsetTarget = target;
+  }
+
+  /** Bleed a slice of the pending correction and glides; call once per analysis hop. */
   advance(t: number, dt: number): void {
-    if (this.pending === 0) return;
-    const max = this.slewRate * dt;
-    const step = clamp(this.pending, -max, max);
-    this.beatRef = this.beatsAt(t) + step;
-    this.tRef = t;
-    this.pending -= step;
-    if (Math.abs(this.pending) < 1e-6) this.pending = 0;
+    if (this.pending !== 0) {
+      const max = this.slewRate * dt;
+      const step = clamp(this.pending, -max, max);
+      this.beatRef = this.beatsAt(t) + step;
+      this.tRef = t;
+      this.pending -= step;
+      if (Math.abs(this.pending) < 1e-6) this.pending = 0;
+    }
+    if (this.bpmTarget !== null) {
+      const max = this.bpm * this.bpmGlide * dt;
+      const d = this.bpmTarget - this.bpm;
+      if (Math.abs(d) <= max) {
+        this.setBpm(this.bpmTarget, t);
+        this.bpmTarget = null;
+      } else this.setBpm(this.bpm + Math.sign(d) * max, t);
+    }
+    if (this.offsetTarget !== null) {
+      const max = this.offsetGlide * dt;
+      const d = this.offsetTarget - this.offset;
+      if (Math.abs(d) <= max) {
+        this.offset = this.offsetTarget;
+        this.offsetTarget = null;
+      } else this.offset += Math.sign(d) * max;
+    }
   }
 }

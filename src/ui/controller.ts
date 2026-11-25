@@ -26,6 +26,8 @@ export function engineSettings(s: Settings) {
     display: s.spec.display,
     dbRange: s.spec.dbRange,
     fmax: s.spec.fmax,
+    autoDownbeat: s.autoDownbeat,
+    clave: s.clave.dir,
   };
 }
 

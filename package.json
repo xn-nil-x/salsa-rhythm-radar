@@ -1,7 +1,7 @@
 {
   "name": "salsa-rhythm-radar",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Research prototype that listens to music and visualizes polyrhythmic structure on a circular 8-count radar.",
   "license": "Apache-2.0",
