@@ -42,7 +42,7 @@ export interface Settings {
   version: number;
 }
 
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 3;
 
 export const DEFAULT_SETTINGS: Settings = {
   source: 'demo',
@@ -52,7 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
   clave: { family: 'son', dir: '3-2' },
   dance: 'salsa-on2-et',
   cycleBeats: 8,
-  memoryCycles: 8,
+  memoryCycles: 4,
   autoPhase: true,
   autoDownbeat: true,
   tapeMode: 'refold',
@@ -72,6 +72,9 @@ function load(): Settings {
     const s = JSON.parse(raw) as Partial<Settings>;
     // v1 -> v2: Eddie Torres On2 becomes the reference dance scheme.
     if (!s.version || s.version < 2) s.dance = 'salsa-on2-et';
+    // v2 -> v3: memory is an integer 2..10 cycles (4/8/16/32 proved too sluggish).
+    if (!s.version || s.version < 3) s.memoryCycles = 4;
+    if (typeof s.memoryCycles === 'number') s.memoryCycles = Math.min(10, Math.max(2, Math.round(s.memoryCycles)));
     s.version = SETTINGS_VERSION;
     return {
       ...DEFAULT_SETTINGS,

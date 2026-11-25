@@ -41,7 +41,7 @@ export function SettingsPanel() {
         </select>
       </Field>
       <Field label="Накопление наблюдений" hint="N — сколько циклов (восьмёрок) помнит радар: за каждый оборот значение сдвигается на 1/N к новому, то, что перестало звучать, гаснет примерно за 3N оборотов.">
-        <Segmented<number> label="Память" value={s.memoryCycles} onChange={(memoryCycles) => set({ memoryCycles })} options={[[1, 'Мгнов.'], [4, '4'], [8, '8'], [16, '16'], [32, '32']]} />
+        <Segmented<number> label="Память" value={s.memoryCycles} onChange={(memoryCycles) => set({ memoryCycles })} options={[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => [n, String(n)] as [number, string])} />
       </Field>
       <Field label="Начало восьмёрки" hint="«1» ищется по совпадению свёрнутого ритма со скелетом сальсы (конга, бас, колокол) с учётом выбранного направления клаве. Кнопка «Здесь 1» отключает автопоиск.">
         <label className="check"><input type="checkbox" checked={s.autoDownbeat} onChange={(e) => set({ autoDownbeat: e.target.checked })} /> {t('autoDownbeat')}</label>

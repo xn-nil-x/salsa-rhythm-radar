@@ -66,7 +66,7 @@ export interface EngineSettings {
 
 export const DEFAULT_SETTINGS: EngineSettings = {
   cycleBeats: 8,
-  memoryCycles: 8,
+  memoryCycles: 4,
   display: 'power',
   dbRange: 60,
   bpmLo: 120,
