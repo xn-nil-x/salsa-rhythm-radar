@@ -186,6 +186,46 @@ export function searchCycle(
   };
 }
 
+/**
+ * Z²ₙ statistic of event times at trial period C (Buccheri et al. 1983, used in
+ * pulsar timing): Σ_k |Σ_i w_i e^{j 2π k t_i / C}|², k = 1..n. Unlike folding a
+ * sampled envelope into bins, it is smooth in C and uses the sub-hop precision of
+ * the onset times, so its peak gives an unbiased, precise period.
+ */
+export function z2(times: ArrayLike<number>, weights: ArrayLike<number>, C: number, harmonics: number): number {
+  let total = 0;
+  for (let k = 1; k <= harmonics; k++) {
+    let re = 0;
+    let im = 0;
+    const w0 = (2 * Math.PI * k) / C;
+    for (let i = 0; i < times.length; i++) {
+      const a = w0 * times[i];
+      re += weights[i] * Math.cos(a);
+      im += weights[i] * Math.sin(a);
+    }
+    total += re * re + im * im;
+  }
+  return total;
+}
+
+/** Refine a cycle period by maximising Z²ₙ of onset times within ±span (relative). */
+export function refinePeriodByOnsets(times: ArrayLike<number>, weights: ArrayLike<number>, C0: number, span = 0.006, step = 0.0002, harmonics = 16): number | null {
+  if (times.length < 8) return null;
+  const grid: number[] = [];
+  const S: number[] = [];
+  for (let r = -span; r <= span + 1e-12; r += step) {
+    const C = C0 * (1 + r);
+    grid.push(C);
+    S.push(z2(times, weights, C, harmonics));
+  }
+  let b = 1;
+  for (let j = 1; j < S.length - 1; j++) if (S[j] > S[b]) b = j;
+  if (!(S[b] >= S[b - 1] && S[b] >= S[b + 1])) return null; // peak at the edge: not trustworthy
+  const d = S[b - 1] - 2 * S[b] + S[b + 1];
+  const shift = d < 0 ? (0.5 * (S[b - 1] - S[b + 1])) / d : 0;
+  return C0 * (1 - span + (b + shift) * step);
+}
+
 export interface BeatGrid {
   /** Cycle phase (0..1/8) of the first beat inside the folded cycle. */
   offset: number;

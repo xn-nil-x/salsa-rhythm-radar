@@ -20,7 +20,7 @@
 import { FFT, hann } from '../dsp/fft';
 import { FeatureExtractor, N_BANDS } from '../dsp/features';
 import { OnsetDetector } from '../dsp/onset';
-import { beatGrid, fold, searchCycle, type CycleSearch, type FoldOptions } from '../dsp/folding';
+import { beatGrid, fold, refinePeriodByOnsets, searchCycle, type CycleSearch, type FoldOptions } from '../dsp/folding';
 import { FoldedSpectrogram, FrameHistory, foldOnsets, type AccumDisplay, type OnsetRecord } from '../accumulate/folded';
 import { patternPhases, getPattern } from '../rhythm/library';
 import { patternProfile } from '../rhythm/matching';
@@ -28,7 +28,7 @@ import type { ClaveDirection } from '../rhythm/types';
 import { Transport } from './transport';
 import { clamp, frac, wrapHalf } from '../util/math';
 
-export const ALGORITHM_VERSION = 'srr-analysis-0.3.0';
+export const ALGORITHM_VERSION = 'srr-analysis-0.3.1';
 
 export type ClockMode = 'auto' | 'manual' | 'reference';
 
@@ -144,6 +144,8 @@ export interface EngineSnapshot {
 const RING = 1 << 18;
 /** Mean-square level below which a spectrogram frame counts as silence (-80 dBFS). */
 const SILENCE_MS = 1e-8;
+/** Systematic delay of detected onsets (flux peak) after the true attack, seconds. Calibrated with the benchmark. */
+const ONSET_LAG = 0.002;
 /** Onset envelope kept for tempo folding, seconds. */
 const ENV_SECONDS = 30;
 /** Maximum history of the "tape" (spectra and onsets), seconds. */
@@ -156,6 +158,8 @@ const DEPTH_MAX = 6;
 const DEPTH_STEP = 0.25;
 /** Short window used to rank hypotheses (reacts fast to tempo changes), cycles. */
 const RANK_DEPTH = 1.5;
+/** Maximum depth of the fold used for beat phase, cycles. */
+const PHASE_DEPTH = 3;
 /** Consecutive updates (0.5 s each) needed to accept a half-beat phase jump / tempo switch / new count 1. */
 const FLIP_VOTES = 4;
 const SWITCH_VOTES = 2;
@@ -610,6 +614,9 @@ export class AnalysisEngine {
       // Precise period and sharpness from the deep window.
       const deep = searchCycle(env, this.envRate, tEnd, best.period * 0.99, best.period * 1.01, this.foldOpt(this.depthCycles), 0.0004).best;
       if (deep && Math.abs(deep.period / best.period - 1) < 0.008) best = deep;
+      // Unbiased precise period from the onset times themselves (Z²ₙ, no binning ripple).
+      const precise = this.refineWithOnsets(best.period);
+      if (precise !== null && Math.abs(precise / best.period - 1) < 0.004) best = { ...best, period: precise, bpm: 480 / precise };
       distinct[0] = best;
     }
     return {
@@ -619,6 +626,53 @@ export class AnalysisEngine {
       contrast: best ? best.sharpness / coarse.floor : 0,
       margin,
     };
+  }
+
+  /** Z²ₙ refinement of the cycle period on recent onsets (all-band channel), deep-window weights. */
+  private refineWithOnsets(C0: number): number | null {
+    const tau = this.foldOpt(this.depthCycles).tau;
+    const tEnd = this.envEndTime;
+    const times: number[] = [];
+    const weights: number[] = [];
+    for (let i = this.onsetHist.length - 1; i >= 0; i--) {
+      const o = this.onsetHist[i];
+      const age = tEnd - o.time;
+      if (age > 4 * tau) break;
+      if (o.channel !== CHANNEL_ALL || age < 0) continue;
+      times.push(o.time - tEnd); // relative times keep the phase factors well conditioned
+      weights.push(Math.min(o.strength, 4) * Math.exp(-age / tau));
+    }
+    return refinePeriodByOnsets(times, weights, C0, 0.006, 0.0002, 16);
+  }
+
+  /**
+   * Sub-bin phase refinement from the onset times. The folded profile has
+   * ~40 ms bins, so its peak is quantised; the circular mean of onset times on
+   * the eighth-note grid (2nd harmonic of the beat) is not. Offbeat ("&")
+   * onsets fall on the same grid and reinforce it, so the coarse beat/& decision
+   * from the template is kept and only the fine offset (< 1/4 beat) is taken.
+   */
+  private precisePhaseShift(tBeat: number, beat: number): number {
+    const tau = this.foldOpt(Math.min(this.depthCycles, PHASE_DEPTH)).tau;
+    const tEnd = this.envEndTime;
+    let re = 0;
+    let im = 0;
+    let sw = 0;
+    const w0 = (2 * Math.PI * 2) / beat;
+    for (let i = this.onsetHist.length - 1; i >= 0; i--) {
+      const o = this.onsetHist[i];
+      const age = tEnd - o.time;
+      if (age > 4 * tau) break;
+      if (o.channel !== CHANNEL_ALL || age < 0) continue;
+      const w = Math.min(o.strength, 4) * Math.exp(-age / tau);
+      const a = w0 * (o.time - ONSET_LAG - tBeat);
+      re += w * Math.cos(a);
+      im += w * Math.sin(a);
+      sw += w;
+    }
+    if (sw <= 0 || Math.hypot(re, im) / sw < 0.3) return 0; // no consistent eighth grid: keep the coarse phase
+    const shift = (Math.atan2(im, re) / w0); // within ±1/4 beat
+    return Math.abs(shift) < beat / 4 ? shift : 0;
   }
 
   private updateTempo(t: number): void {
@@ -689,7 +743,9 @@ export class AnalysisEngine {
     const tr = this.tracker;
     const C = 480 / tr.bpm;
     const tEnd = this.envEndTime;
-    const prof = fold(env, this.envRate, tEnd, C, this.foldOpt(this.depthCycles)).profile;
+    // Phase uses a window of at most 3 cycles: depth helps the tempo, but with any residual tempo
+    // error a deep phase fold reports where the beats were seconds ago (a lag bias).
+    const prof = fold(env, this.envRate, tEnd, C, this.foldOpt(Math.min(this.depthCycles, PHASE_DEPTH))).profile;
     const B = prof.length;
     const tmpl = this.templates[this.settings.clave];
     const corr = circularCorr(prof, tmpl);
@@ -724,7 +780,7 @@ export class AnalysisEngine {
     }
     // Bring the reference beat near "now" so the clock is evaluated where it matters.
     const nb = Math.round((tEnd - beatT) / (C / 8));
-    const tBeat = beatT + nb * (C / 8);
+    const tBeat = beatT + nb * (C / 8) + this.precisePhaseShift(beatT + nb * (C / 8), C / 8);
     const b = tr.beatsAt(tBeat);
     const err = Math.round(b) - b;
     if (hard) {
